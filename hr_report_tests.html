@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>HR Report Generator — Test Suite</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; color: #2c3e50; padding: 24px; }
+h1 { font-size: 1.3rem; color: #1a3a5c; margin-bottom: 4px; }
+.subtitle { font-size: 0.85rem; color: #888; margin-bottom: 20px; }
+
+.summary {
+  display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.stat {
+  background: white; border-radius: 10px; padding: 14px 20px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.07); text-align: center; min-width: 100px;
+}
+.stat .num { font-size: 1.8rem; font-weight: 700; }
+.stat .lbl { font-size: 0.75rem; color: #888; margin-top: 2px; }
+.stat.pass .num { color: #27ae60; }
+.stat.fail .num { color: #e74c3c; }
+.stat.total .num { color: #1a3a5c; }
+
+.group { background: white; border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
+.group-title { font-size: 0.9rem; font-weight: 700; color: #1a3a5c; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.group-badge { font-size: 0.7rem; padding: 1px 8px; border-radius: 10px; font-weight: 600; }
+.badge-pass { background: #e8fff0; color: #27ae60; }
+.badge-fail { background: #fff0f0; color: #e74c3c; }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+th { background: #f5f8fc; text-align: left; padding: 7px 10px; color: #555; font-weight: 600; border-bottom: 1.5px solid #e0e8f0; }
+td { padding: 7px 10px; border-bottom: 1px solid #f0f4f8; vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+
+.pass-icon { color: #27ae60; font-weight: 700; }
+.fail-icon { color: #e74c3c; font-weight: 700; }
+
+.got { font-family: monospace; background: #f5f8fc; padding: 1px 5px; border-radius: 4px; font-size: 0.78rem; }
+.got.wrong { background: #fff0f0; color: #e74c3c; }
+.got.right { background: #f0fff4; color: #27ae60; }
+
+.btn-run { padding: 10px 22px; background: #1a3a5c; color: white; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-bottom: 20px; }
+.btn-run:hover { background: #2a5a8c; }
+</style>
+</head>
+<body>
+
+<h1>🧪 HR Report Generator — Test Suite</h1>
+<p class="subtitle">Unit tests for core utility functions</p>
+
+<button class="btn-run" onclick="runAll()">▶ Run All Tests</button>
+
+<div class="summary" id="summary"></div>
+<div id="results"></div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════
+//  FUNCTIONS UNDER TEST (copied from main app)
+// ═══════════════════════════════════════════
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function splitRange(str) {
+  if (!str) return { s: null, e: null };
+  const c = str.replace(/\s/g, '').replace(/\./g, ':');
+  const idx = c.lastIndexOf('-');
+  if (idx > 0) return { s: c.substring(0, idx), e: c.substring(idx + 1) };
+  return { s: str, e: null };
+}
+
+function thaiDateToAD(str) {
+  const p = str.split('/');
+  if (p.length !== 3) return null;
+  const d = parseInt(p[0]), m = parseInt(p[1]), yBE = parseInt(p[2]);
+  if (isNaN(d) || isNaN(m) || isNaN(yBE)) return null;
+  return `${yBE - 543}-${pad2(m)}-${pad2(d)}`;
+}
+
+function fmtDuration(hhmm) {
+  if (!hhmm || hhmm === '--') return '00:00';
+  const p = String(hhmm).split(':');
+  const h = parseInt(p[0]) || 0, mn = parseInt(p[1]) || 0;
+  return `${pad2(h)}:${pad2(mn)}`;
+}
+
+function cleanTime(v) {
+  if (v === '--' || v === null || v === undefined) return null;
+  if (typeof v === 'number') {
+    const frac = v % 1;
+    const totalMins = Math.round(frac * 24 * 60);
+    const h = Math.floor(totalMins / 60) % 24;
+    const m = totalMins % 60;
+    return `${pad2(h)}:${pad2(m)}`;
+  }
+  const s = String(v).trim();
+  return (s === '--' || !s) ? null : s;
+}
+
+function parseExcelDate(v) {
+  if (!v || v === '--') return null;
+  if (typeof v === 'number') {
+    // Approximate: Excel serial → YYYY-MM-DD (JS Date epoch offset)
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth()+1)}-${pad2(d.getUTCDate())}`;
+  }
+  const s = String(v).substring(0, 10);
+  return s.match(/^\d{4}-\d{2}-\d{2}$/) ? s : null;
+}
+
+function statusLabel(rec) {
+  if (!rec) return 'ขาด';
+  if (rec.clockInTime) {
+    if (rec.lateTime && rec.lateTime !== '00:00') return 'สาย';
+    return 'ปกติ';
+  }
+  return 'ขาด';
+}
+
+function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+
+// ═══════════════════════════════════════════
+//  TEST RUNNER
+// ═══════════════════════════════════════════
+let results = [];
+
+function eq(a, b) {
+  if (a === null && b === null) return true;
+  if (typeof a === 'object' && typeof b === 'object' && a !== null && b !== null) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  return a === b;
+}
+
+function test(groupName, id, desc, got, expected) {
+  const pass = eq(got, expected);
+  results.push({ groupName, id, desc, got: JSON.stringify(got), expected: JSON.stringify(expected), pass });
+}
+
+function runAll() {
+  results = [];
+
+  // ── 1. splitRange ──
+  test('splitRange', '1.1', 'Shift time with spaces',       splitRange('05:30 - 16:00'),   { s:'05:30', e:'16:00' });
+  test('splitRange', '1.2', 'Break time no spaces',          splitRange('09:00-09:30'),     { s:'09:00', e:'09:30' });
+  test('splitRange', '1.3', 'Dot notation time',             splitRange('13.30-22.30'),     { s:'13:30', e:'22:30' });
+  test('splitRange', '1.4', 'Single time no range',          splitRange('08:00').s,         '08:00');
+  test('splitRange', '1.5', 'Null input',                    splitRange(null),              { s:null, e:null });
+  test('splitRange', '1.6', 'Time with trailing space',      splitRange('08:00 - 18:30 '), { s:'08:00', e:'18:30' });
+
+  // ── 2. thaiDateToAD ──
+  test('thaiDateToAD', '2.1', 'Standard Thai date',         thaiDateToAD('08/06/2569'),   '2026-06-08');
+  test('thaiDateToAD', '2.2', 'Start of year',              thaiDateToAD('01/01/2567'),   '2024-01-01');
+  test('thaiDateToAD', '2.3', 'End of year',                thaiDateToAD('31/12/2568'),   '2025-12-31');
+  test('thaiDateToAD', '2.4', 'Invalid format',             thaiDateToAD('2569-06-08'),   null);
+  test('thaiDateToAD', '2.5', 'Zero-padded day/month',      thaiDateToAD('05/09/2568'),   '2025-09-05');
+
+  // ── 3. fmtDuration ──
+  test('fmtDuration', '3.1', 'Zero duration',               fmtDuration('00:00'),         '00:00');
+  test('fmtDuration', '3.2', 'Full hours only',             fmtDuration('09:00'),         '09:00');
+  test('fmtDuration', '3.3', 'Hours and minutes',           fmtDuration('07:44'),         '07:44');
+  test('fmtDuration', '3.4', 'Minutes only',                fmtDuration('00:46'),         '00:46');
+  test('fmtDuration', '3.5', 'Null input',                  fmtDuration(null),            '00:00');
+  test('fmtDuration', '3.6', 'Sentinel "--"',               fmtDuration('--'),            '00:00');
+  test('fmtDuration', '3.7', 'Single digit hour/min',       fmtDuration('1:8'),           '01:08');
+
+  // ── 4. cleanTime ──
+  test('cleanTime', '4.1', 'String time passthrough',       cleanTime('17:46'),           '17:46');
+  test('cleanTime', '4.2', 'Excel serial 0.3652... ≈08:46', cleanTime(0.365277777),       '08:46');
+  test('cleanTime', '4.3', 'Midnight = 00:00',              cleanTime(0.0),               '00:00');
+  test('cleanTime', '4.4', 'Noon = 12:00',                  cleanTime(0.5),               '12:00');
+  test('cleanTime', '4.5', 'DateTime serial strip date',    cleanTime(46000.75),          '18:00');
+  test('cleanTime', '4.6', 'Sentinel "--"',                 cleanTime('--'),              null);
+  test('cleanTime', '4.7', 'Null input',                    cleanTime(null),              null);
+  test('cleanTime', '4.8', 'Undefined input',               cleanTime(undefined),         null);
+  test('cleanTime', '4.9', '23:59 edge case',               cleanTime(0.9993055),         '23:59');
+
+  // ── 5. parseExcelDate ──
+  test('parseExcelDate', '5.1', 'String date passthrough',  parseExcelDate('2025-09-26'), '2025-09-26');
+  test('parseExcelDate', '5.2', 'Null input',               parseExcelDate(null),         null);
+  test('parseExcelDate', '5.3', 'Sentinel "--"',            parseExcelDate('--'),         null);
+  test('parseExcelDate', '5.4', 'Invalid string',           parseExcelDate('hello'),      null);
+  test('parseExcelDate', '5.5', 'Truncates to 10 chars',    parseExcelDate('2025-09-26T10:00:00'), '2025-09-26');
+
+  // ── 6. statusLabel ──
+  test('statusLabel', '6.1', 'On time',                     statusLabel({ clockInTime:'08:00', lateTime:'00:00' }), 'ปกติ');
+  test('statusLabel', '6.2', 'Late',                        statusLabel({ clockInTime:'09:30', lateTime:'00:30' }), 'สาย');
+  test('statusLabel', '6.3', 'No clock-in in record',       statusLabel({ clockInTime: null, status:'ไม่มา' }),     'ขาด');
+  test('statusLabel', '6.4', 'Null record (no shift data)', statusLabel(null),            'ขาด');
+  test('statusLabel', '6.5', 'Has OT, not late',            statusLabel({ clockInTime:'07:00', lateTime:'00:00', otTime:'02:00' }), 'ปกติ');
+  test('statusLabel', '6.6', 'lateTime undefined',          statusLabel({ clockInTime:'08:00' }), 'ปกติ');
+
+  // ── 7. daysInMonth ──
+  test('daysInMonth', '7.1', 'January = 31',                daysInMonth(2026, 1),         31);
+  test('daysInMonth', '7.2', 'February non-leap = 28',      daysInMonth(2025, 2),         28);
+  test('daysInMonth', '7.3', 'February leap year = 29',     daysInMonth(2024, 2),         29);
+  test('daysInMonth', '7.4', 'April = 30',                  daysInMonth(2026, 4),         30);
+  test('daysInMonth', '7.5', 'June = 30',                   daysInMonth(2026, 6),         30);
+  test('daysInMonth', '7.6', 'December = 31',               daysInMonth(2026, 12),        31);
+
+  render();
+}
+
+// ═══════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════
+function render() {
+  const total  = results.length;
+  const passed = results.filter(r => r.pass).length;
+  const failed = total - passed;
+
+  // Summary
+  document.getElementById('summary').innerHTML = `
+    <div class="stat total"><div class="num">${total}</div><div class="lbl">Total</div></div>
+    <div class="stat pass"><div class="num">${passed}</div><div class="lbl">Passed ✓</div></div>
+    <div class="stat fail"><div class="num">${failed}</div><div class="lbl">Failed ✗</div></div>
+    <div class="stat ${failed===0?'pass':'fail'}"><div class="num">${Math.round(passed/total*100)}%</div><div class="lbl">Pass Rate</div></div>
+  `;
+
+  // Group by groupName
+  const groups = {};
+  results.forEach(r => {
+    if (!groups[r.groupName]) groups[r.groupName] = [];
+    groups[r.groupName].push(r);
+  });
+
+  let html = '';
+  for (const [grp, rows] of Object.entries(groups)) {
+    const gPass = rows.filter(r => r.pass).length;
+    const allPass = gPass === rows.length;
+    html += `
+      <div class="group">
+        <div class="group-title">
+          ${allPass ? '✅' : '❌'} ${grp}()
+          <span class="group-badge ${allPass ? 'badge-pass' : 'badge-fail'}">${gPass}/${rows.length}</span>
+        </div>
+        <table>
+          <tr><th width="50">ID</th><th>Description</th><th>Expected</th><th>Got</th><th width="60">Result</th></tr>
+          ${rows.map(r => `
+            <tr>
+              <td>${r.id}</td>
+              <td>${r.desc}</td>
+              <td><span class="got">${r.expected}</span></td>
+              <td><span class="got ${r.pass ? 'right' : 'wrong'}">${r.got}</span></td>
+              <td>${r.pass ? '<span class="pass-icon">✓ PASS</span>' : '<span class="fail-icon">✗ FAIL</span>'}</td>
+            </tr>
+          `).join('')}
+        </table>
+      </div>`;
+  }
+  document.getElementById('results').innerHTML = html;
+}
+
+// Auto-run on load
+window.onload = runAll;
+</script>
+</body>
+</html>

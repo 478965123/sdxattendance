@@ -1,0 +1,1336 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HR Report Generator</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', Tahoma, 'TH Sarabun New', sans-serif; background: #eef2f7; color: #2c3e50; min-height: 100vh; }
+
+.topbar { background: #1a3a5c; color: white; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+.topbar h1 { font-size: 1.15rem; font-weight: 600; }
+.topbar .version { font-size: 0.75rem; opacity: 0.6; margin-left: auto; }
+
+.container { max-width: 960px; margin: 0 auto; padding: 20px; }
+
+.card { background: white; border-radius: 12px; padding: 20px 22px; margin-bottom: 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
+.card-title { font-size: 0.95rem; font-weight: 600; color: #1a3a5c; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.card-title span { font-size: 1.1rem; }
+
+/* Month selector */
+.month-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.field-group { display: flex; align-items: center; gap: 8px; }
+.field-group label { font-size: 0.88rem; color: #555; white-space: nowrap; }
+select {
+  padding: 7px 11px; border: 1.5px solid #d0d8e4; border-radius: 8px;
+  font-size: 0.88rem; color: #2c3e50; background: white; cursor: pointer;
+  min-width: 130px;
+}
+select:focus { outline: none; border-color: #3a82c8; }
+
+/* Upload grid */
+.upload-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 700px) { .upload-grid { grid-template-columns: 1fr; } }
+
+.upload-box {
+  border: 2px dashed #c5d5e8; border-radius: 10px; padding: 16px 12px;
+  text-align: center; cursor: pointer; transition: all 0.18s; position: relative;
+  background: #fafcff;
+}
+.upload-box:hover { border-color: #3a82c8; background: #f0f6ff; }
+.upload-box.has-file { border-color: #27ae60; border-style: solid; background: #f0fff6; }
+.upload-box.has-file:hover { border-color: #1e9152; background: #e8fff0; }
+.upload-icon { font-size: 1.9rem; margin-bottom: 6px; display: block; }
+.upload-label { font-size: 0.82rem; font-weight: 700; color: #1a3a5c; margin-bottom: 3px; }
+.upload-sublabel { font-size: 0.74rem; color: #8899aa; margin-bottom: 8px; }
+.upload-filename { font-size: 0.74rem; color: #27ae60; font-weight: 600; word-break: break-all; line-height: 1.3; }
+.upload-filename.empty { color: #aab; }
+.badge-optional {
+  display: inline-block; font-size: 0.62rem; background: #e8f2ff; color: #3a82c8;
+  padding: 1px 5px; border-radius: 8px; margin-left: 4px; font-weight: 600; vertical-align: middle;
+}
+.badge-required {
+  display: inline-block; font-size: 0.62rem; background: #fff0f0; color: #e05050;
+  padding: 1px 5px; border-radius: 8px; margin-left: 4px; font-weight: 600; vertical-align: middle;
+}
+input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+
+/* DB status */
+.db-panel { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #f5f8fc; border-radius: 8px; }
+.db-dot { width: 10px; height: 10px; border-radius: 50%; background: #c5cdd8; flex-shrink: 0; transition: background 0.3s; }
+.db-dot.active { background: #27ae60; box-shadow: 0 0 0 3px rgba(39,174,96,0.15); }
+.db-info { font-size: 0.84rem; color: #556; }
+.db-info strong { color: #1a3a5c; }
+.btn-clear-db {
+  margin-left: auto; font-size: 0.75rem; color: #e05050; background: none;
+  border: 1px solid #e05050; padding: 3px 10px; border-radius: 6px; cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-clear-db:hover { background: #fff0f0; }
+
+/* Generate button */
+.btn-generate {
+  width: 100%; padding: 13px; background: #1a3a5c; color: white; border: none;
+  border-radius: 10px; font-size: 1rem; font-weight: 700; cursor: pointer;
+  transition: background 0.2s; letter-spacing: 0.3px;
+}
+.btn-generate:hover:not(:disabled) { background: #2a5a8c; }
+.btn-generate:disabled { background: #a0b5c8; cursor: not-allowed; }
+
+.progress-bar { height: 5px; background: #e0e8f0; border-radius: 3px; margin-top: 10px; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #3a82c8, #27ae60); border-radius: 3px; transition: width 0.4s; width: 0%; }
+
+/* Log */
+.log-box {
+  background: #0f1923; border-radius: 8px; padding: 12px 14px;
+  font-family: 'Consolas', 'Courier New', monospace; font-size: 0.78rem;
+  max-height: 210px; overflow-y: auto; color: #7ec8e3;
+}
+.log-line { padding: 1.5px 0; line-height: 1.5; }
+.log-line.info  { color: #7ec8e3; }
+.log-line.ok    { color: #55d98d; }
+.log-line.warn  { color: #ffd166; }
+.log-line.error { color: #ff6b6b; }
+.log-line.sep   { color: #3a5a7a; }
+
+.hint { font-size: 0.78rem; color: #8899aa; margin-top: 8px; }
+
+/* Settings */
+.settings-row { display: flex; gap: 8px; align-items: center; }
+.settings-input {
+  flex: 1; padding: 7px 11px; border: 1.5px solid #d0d8e4; border-radius: 8px;
+  font-size: 0.82rem; color: #2c3e50; font-family: monospace;
+}
+.settings-input:focus { outline: none; border-color: #3a82c8; }
+.btn-save { padding: 7px 14px; background: #1a3a5c; color: white; border: none; border-radius: 8px; font-size: 0.82rem; cursor: pointer; white-space: nowrap; }
+.btn-save:hover { background: #2a5a8c; }
+.btn-link {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 8px;
+  padding: 6px 12px; background: #eaf4ff; color: #3a82c8; border: 1.5px solid #3a82c8;
+  border-radius: 8px; font-size: 0.78rem; font-weight: 600; cursor: pointer; text-decoration: none;
+  transition: all 0.15s;
+}
+.btn-link:hover { background: #d4ecff; }
+.url-status { font-size: 0.74rem; color: #8899aa; margin-top: 4px; word-break: break-all; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span style="font-size:1.3rem">📊</span>
+  <h1>HR Report Generator — Sodexo</h1>
+  <span class="version">v1.0</span>
+</div>
+
+<div class="container">
+
+  <!-- Month Selector -->
+  <div class="card">
+    <div class="card-title"><span>📅</span> เลือกเดือนที่ต้องการออกรายงาน</div>
+    <div class="month-row">
+      <div class="field-group">
+        <label>เดือน:</label>
+        <select id="selMonth">
+          <option value="1">มกราคม</option><option value="2">กุมภาพันธ์</option>
+          <option value="3">มีนาคม</option><option value="4">เมษายน</option>
+          <option value="5">พฤษภาคม</option><option value="6">มิถุนายน</option>
+          <option value="7">กรกฎาคม</option><option value="8">สิงหาคม</option>
+          <option value="9">กันยายน</option><option value="10">ตุลาคม</option>
+          <option value="11">พฤศจิกายน</option><option value="12">ธันวาคม</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>ปี (ค.ศ.):</label>
+        <select id="selYear" style="min-width:90px;"></select>
+      </div>
+      <button onclick="autoDetectMonth()" style="margin-left:8px;padding:7px 14px;background:#f0f6ff;color:#3a82c8;border:1.5px solid #3a82c8;border-radius:8px;font-size:0.82rem;cursor:pointer;font-weight:600;">
+        🔍 ดึงเดือนจากไฟล์
+      </button>
+    </div>
+    <p class="hint" id="monthHint" style="margin-top:8px;display:none;"></p>
+  </div>
+
+  <!-- File Uploads -->
+  <div class="card">
+    <div class="card-title"><span>📁</span> อัพโหลดไฟล์</div>
+    <div class="upload-grid">
+
+      <div class="upload-box" id="box1">
+        <span class="upload-icon">📋</span>
+        <div class="upload-label">บัตรเวลา <span class="badge-required">Required</span></div>
+        <div class="upload-sublabel">.xlsx — ข้อมูลลงเวลาพนักงาน</div>
+        <div class="upload-filename empty" id="name1">เลือกไฟล์...</div>
+        <input type="file" id="file1" accept=".xlsx,.xls" onchange="handleFileChange(this,1)">
+      </div>
+
+      <div class="upload-box" id="box2">
+        <span class="upload-icon">👥</span>
+        <div class="upload-label">Employee Master <span class="badge-optional">Optional</span></div>
+        <div class="upload-sublabel">.xlsx — HWT (บันทึกใน DB อัตโนมัติ)</div>
+        <div class="upload-filename empty" id="name2">ใช้จาก Database...</div>
+        <input type="file" id="file2" accept=".xlsx,.xls" onchange="handleFileChange(this,2)">
+      </div>
+
+      <div class="upload-box" id="box3">
+        <span class="upload-icon">📱</span>
+        <div class="upload-label">Line Check-in <span class="badge-optional">Optional</span></div>
+        <div class="upload-sublabel">.xls — ข้อมูล check-in จาก Line</div>
+        <div class="upload-filename empty" id="name3">เลือกไฟล์...</div>
+        <input type="file" id="file3" accept=".xls,.xlsx" onchange="handleFileChange(this,3)">
+      </div>
+      <!-- Download from server button — outside upload-box so it doesn't trigger file picker -->
+      <div id="lineDownloadArea" style="grid-column:3;margin-top:-8px;padding:0 2px;">
+        <a id="btnLineDownload" class="btn-link" onclick="downloadLineFile(event)">
+          ⬇️ ดาวน์โหลดไฟล์ Line จาก Server
+        </a>
+        <div class="url-status" id="lineUrlStatus"></div>
+      </div>
+
+    </div>
+    <p class="hint">💡 Employee Master จะถูกบันทึกใน Browser Database — ครั้งหน้าไม่ต้องอัพโหลดใหม่ถ้าไม่มีการเปลี่ยนแปลง</p>
+  </div>
+
+  <!-- DB Status -->
+  <div class="card">
+    <div class="card-title"><span>🗄️</span> Employee Master Database</div>
+    <div class="db-panel">
+      <div class="db-dot" id="dbDot"></div>
+      <div class="db-info" id="dbInfo">กำลังโหลด...</div>
+      <button class="btn-clear-db" onclick="clearDB()">ล้าง DB</button>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="card">
+    <div class="card-title" style="cursor:pointer;user-select:none;" onclick="toggleSettings()">
+      <span>⚙️</span> ตั้งค่า (Admin)
+      <span id="settingsArrow" style="margin-left:auto;font-size:0.8rem;color:#8899aa;">▼</span>
+    </div>
+    <div id="settingsPanel" style="display:none;">
+      <!-- Supabase Config -->
+      <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #e8f0f8;">
+        <div style="font-size:0.82rem;color:#555;margin-bottom:8px;font-weight:600;">🗄️ Supabase Connection</div>
+        <div style="margin-bottom:8px;">
+          <div style="font-size:0.74rem;color:#888;margin-bottom:4px;">Project URL</div>
+          <input class="settings-input" id="sbUrl" type="text" placeholder="https://xxxxxxxxxxxx.supabase.co">
+        </div>
+        <div style="margin-bottom:8px;">
+          <div style="font-size:0.74rem;color:#888;margin-bottom:4px;">Anon Public Key</div>
+          <input class="settings-input" id="sbKey" type="password" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+        </div>
+        <div class="settings-row">
+          <button class="btn-save" onclick="saveSupabaseConfig()">บันทึกและเชื่อมต่อ</button>
+          <div id="sbStatus" style="font-size:0.78rem;color:#888;margin-left:10px;"></div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <div style="font-size:0.82rem;color:#555;margin-bottom:6px;font-weight:600;">🔗 URL ดาวน์โหลด Line Check-in</div>
+        <div class="settings-row">
+          <input class="settings-input" id="lineUrlInput" type="text" placeholder="https://your-server/report/check-in-location/excel">
+          <button class="btn-save" onclick="saveLineUrl()">บันทึก</button>
+          <button class="btn-save" style="background:#888;" onclick="resetLineUrl()">รีเซ็ต</button>
+        </div>
+        <div style="font-size:0.74rem;color:#8899aa;margin-top:5px;">URL นี้จะถูกบันทึกในเครื่องนี้ (localStorage) — ใช้ปุ่มด้านบนเพื่อดาวน์โหลดไฟล์ .xls โดยตรง</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generate -->
+  <div class="card">
+    <button class="btn-generate" id="btnGenerate" onclick="runGenerate()" disabled>
+      ⚙️ สร้างรายงาน Excel
+    </button>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+  </div>
+
+  <!-- Log -->
+  <div class="card">
+    <div class="card-title"><span>📋</span> Log</div>
+    <div class="log-box" id="logBox">
+      <div class="log-line info">[ ระบบพร้อมใช้งาน ]</div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════
+let files = { 1: null, 2: null, 3: null };
+let db = null;
+
+const MONTH_TH = ['','มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
+                  'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+
+// ═══════════════════════════════════════════
+//  INIT — year selector + DB
+// ═══════════════════════════════════════════
+(function initPage() {
+  const now = new Date();
+  const selY = document.getElementById('selYear');
+  for (let y = now.getFullYear() + 1; y >= now.getFullYear() - 4; y--) {
+    const o = document.createElement('option');
+    o.value = y; o.textContent = y;
+    if (y === now.getFullYear()) o.selected = true;
+    selY.appendChild(o);
+  }
+  document.getElementById('selMonth').value = now.getMonth() + 1;
+  openDB();
+})();
+
+// ═══════════════════════════════════════════
+//  SETTINGS — LINE CHECK-IN URL
+// ═══════════════════════════════════════════
+const DEFAULT_LINE_URL = 'https://klock-pdp.schooney.tech:5443/report/check-in-location/excel';
+
+function getLineUrl() {
+  return localStorage.getItem('lineCheckinUrl') || DEFAULT_LINE_URL;
+}
+
+function saveLineUrl() {
+  const val = document.getElementById('lineUrlInput').value.trim();
+  if (!val) { alert('กรุณากรอก URL'); return; }
+  localStorage.setItem('lineCheckinUrl', val);
+  refreshLineUrlStatus();
+  log(`✓ บันทึก URL Line Check-in: ${val}`, 'ok');
+}
+
+function resetLineUrl() {
+  localStorage.removeItem('lineCheckinUrl');
+  document.getElementById('lineUrlInput').value = DEFAULT_LINE_URL;
+  refreshLineUrlStatus();
+  log('รีเซ็ต URL เป็นค่า default', 'info');
+}
+
+function refreshLineUrlStatus() {
+  const url = getLineUrl();
+  const el  = document.getElementById('lineUrlStatus');
+  const inp = document.getElementById('lineUrlInput');
+  if (inp) inp.value = url;
+  if (el)  el.textContent = `URL: ${url}`;
+}
+
+function toggleSettings() {
+  const panel = document.getElementById('settingsPanel');
+  const arrow = document.getElementById('settingsArrow');
+  const open  = panel.style.display === 'none';
+  panel.style.display = open ? 'block' : 'none';
+  arrow.textContent   = open ? '▲' : '▼';
+  if (open) refreshLineUrlStatus();
+}
+
+function downloadLineFile(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const url = getLineUrl();
+  if (!url) { alert('ยังไม่ได้ตั้งค่า URL — กรุณาไปที่ ⚙️ ตั้งค่า'); return; }
+  log(`⬇️ กำลังดาวน์โหลดไฟล์ Line จาก: ${url}`, 'info');
+  // Open URL — browser will handle download (Content-Disposition: attachment)
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// Init on load
+window.addEventListener('DOMContentLoaded', () => {
+  refreshLineUrlStatus();
+  // Pre-fill Supabase inputs from localStorage
+  const { url, key } = getSupabaseConfig();
+  if (url) document.getElementById('sbUrl').value = url;
+  if (key) document.getElementById('sbKey').value = key;
+  // Init Supabase if config exists
+  if (url && key) {
+    if (initSupabase()) {
+      refreshDBStatus();
+      log('Supabase: โหลด config จาก localStorage', 'ok');
+    }
+  } else {
+    refreshDBStatus();
+    log('กรุณาตั้งค่า Supabase ใน ⚙️ ตั้งค่า', 'warn');
+  }
+});
+
+// ═══════════════════════════════════════════
+//  AUTO-DETECT MONTH FROM FILE
+// ═══════════════════════════════════════════
+async function autoDetectMonth() {
+  if (!files[1]) { alert('กรุณาเลือกไฟล์บัตรเวลาก่อน'); return; }
+  const buf  = await readFile(files[1]);
+  const wb   = XLSX.read(buf, { type: 'array' });
+  const att  = parseAttendance(wb);
+  const months = [...new Set(att.map(r => r.date ? r.date.substring(0, 7) : null).filter(Boolean))].sort();
+  if (!months.length) { alert('ไม่พบข้อมูลวันที่ในไฟล์'); return; }
+
+  const hint = document.getElementById('monthHint');
+  if (months.length === 1) {
+    const [y, m] = months[0].split('-');
+    document.getElementById('selMonth').value = parseInt(m);
+    document.getElementById('selYear').value  = parseInt(y);
+    hint.textContent = `✓ ตั้งค่าเดือนเป็น ${MONTH_TH[parseInt(m)]} ${y} แล้ว`;
+    hint.style.display = 'block';
+    hint.style.color = '#27ae60';
+  } else {
+    // multiple months — show all and let user pick
+    hint.innerHTML = `พบข้อมูลหลายเดือนในไฟล์: <strong>${months.map(ym => {
+      const [y, m] = ym.split('-');
+      return `<button onclick="setMonth('${ym}')" style="margin:0 4px;padding:2px 8px;border:1px solid #3a82c8;border-radius:6px;background:#f0f6ff;color:#3a82c8;cursor:pointer;font-size:0.8rem;">${MONTH_TH[parseInt(m)]} ${y}</button>`;
+    }).join('')}</strong>`;
+    hint.style.display = 'block';
+    hint.style.color = '#555';
+  }
+}
+
+function setMonth(ym) {
+  const [y, m] = ym.split('-');
+  document.getElementById('selMonth').value = parseInt(m);
+  document.getElementById('selYear').value  = parseInt(y);
+  const hint = document.getElementById('monthHint');
+  hint.textContent = `✓ ตั้งค่าเดือนเป็น ${MONTH_TH[parseInt(m)]} ${y} แล้ว`;
+  hint.style.color = '#27ae60';
+}
+
+// ═══════════════════════════════════════════
+//  SUPABASE
+// ═══════════════════════════════════════════
+let supabaseClient = null;
+
+function getSupabaseConfig() {
+  return {
+    url: localStorage.getItem('sbUrl') || '',
+    key: localStorage.getItem('sbKey') || '',
+  };
+}
+
+function initSupabase() {
+  const { url, key } = getSupabaseConfig();
+  if (!url || !key) return false;
+  try {
+    supabaseClient = supabase.createClient(url, key);
+    return true;
+  } catch(e) {
+    log('Supabase init error: ' + e.message, 'error');
+    return false;
+  }
+}
+
+async function saveSupabaseConfig() {
+  const url = document.getElementById('sbUrl').value.trim();
+  const key = document.getElementById('sbKey').value.trim();
+  if (!url || !key) { alert('กรุณากรอก URL และ Key ให้ครบ'); return; }
+  localStorage.setItem('sbUrl', url);
+  localStorage.setItem('sbKey', key);
+  const ok = initSupabase();
+  if (ok) {
+    // Test connection
+    const { error } = await supabaseClient.from('employees').select('emp_code', { count: 'exact', head: true });
+    const sbStatus = document.getElementById('sbStatus');
+    if (error) {
+      sbStatus.textContent = '❌ เชื่อมต่อไม่ได้: ' + error.message;
+      sbStatus.style.color = '#e74c3c';
+    } else {
+      sbStatus.textContent = '✅ เชื่อมต่อสำเร็จ';
+      sbStatus.style.color = '#27ae60';
+      log('เชื่อมต่อ Supabase สำเร็จ', 'ok');
+      refreshDBStatus();
+    }
+  }
+}
+
+async function sbUpsertEmployees(empArray) {
+  if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+  // Map to DB columns
+  const rows = empArray.map(e => ({
+    emp_code    : e.empCode,
+    name        : e.name,
+    grade       : e.grade,
+    position    : e.position,
+    service_type: e.serviceType,
+    payment_type: e.paymentType,
+    shift_ref   : e.shiftRef,
+    day_shifts  : e.dayShifts,
+    updated_at  : new Date().toISOString(),
+  }));
+  const { error } = await supabaseClient.from('employees').upsert(rows, { onConflict: 'emp_code' });
+  if (error) throw new Error('employees upsert: ' + error.message);
+}
+
+async function sbUpsertShifts(shiftArray) {
+  if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+  const rows = shiftArray.map(s => ({
+    shift_code : s.shiftCode,
+    position   : s.position,
+    type       : s.type,
+    time_str   : s.timeStr,
+    time_start : s.timeStart,
+    time_end   : s.timeEnd,
+    break1_out : s.break1Out,
+    break1_in  : s.break1In,
+    updated_at : new Date().toISOString(),
+  }));
+  const { error } = await supabaseClient.from('shifts').upsert(rows, { onConflict: 'shift_code' });
+  if (error) throw new Error('shifts upsert: ' + error.message);
+}
+
+async function sbUpsertAttendance(attArray) {
+  if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+  const now = new Date().toISOString();
+  const rows = attArray.map(r => ({
+    emp_id        : r.empId,
+    emp_name      : `${r.firstName} ${r.lastName}`.trim(),
+    dept          : r.dept,
+    date          : r.date,
+    month         : parseInt(r.date.split('-')[1]),
+    year          : parseInt(r.date.split('-')[0]),
+    clock_in_time : r.clockInTime,
+    clock_out_time: r.clockOutTime,
+    work_time     : r.workTime,
+    ot_time       : r.otTime,
+    late_time     : r.lateTime,
+    status        : r.status,
+    clock_in_src  : r.clockInSrc || '',
+    uploaded_at   : now,
+  }));
+  // Batch upsert in chunks of 500
+  for (let i = 0; i < rows.length; i += 500) {
+    const chunk = rows.slice(i, i + 500);
+    const { error } = await supabaseClient.from('attendance').upsert(chunk, { onConflict: 'emp_id,date' });
+    if (error) throw new Error('attendance upsert: ' + error.message);
+  }
+}
+
+async function sbGetEmployees() {
+  if (!supabaseClient) return [];
+  const { data, error } = await supabaseClient.from('employees').select('*');
+  if (error) throw new Error('employees select: ' + error.message);
+  // Map back to app format
+  return (data || []).map(e => ({
+    empCode    : e.emp_code,
+    name       : e.name,
+    grade      : e.grade,
+    position   : e.position,
+    serviceType: e.service_type,
+    paymentType: e.payment_type,
+    shiftRef   : e.shift_ref,
+    dayShifts  : e.day_shifts || {},
+  }));
+}
+
+async function sbGetShifts() {
+  if (!supabaseClient) return [];
+  const { data, error } = await supabaseClient.from('shifts').select('*');
+  if (error) throw new Error('shifts select: ' + error.message);
+  return (data || []).map(s => ({
+    shiftCode : s.shift_code,
+    position  : s.position,
+    type      : s.type,
+    timeStr   : s.time_str,
+    timeStart : s.time_start,
+    timeEnd   : s.time_end,
+    break1Out : s.break1_out,
+    break1In  : s.break1_in,
+  }));
+}
+
+async function refreshDBStatus() {
+  const dot  = document.getElementById('dbDot');
+  const info = document.getElementById('dbInfo');
+  if (!supabaseClient) {
+    dot.classList.remove('active');
+    info.innerHTML = 'ยังไม่ได้ตั้งค่า Supabase — ไปที่ ⚙️ ตั้งค่า';
+    checkReady();
+    return;
+  }
+  try {
+    const { count, error } = await supabaseClient
+      .from('employees').select('*', { count: 'exact', head: true });
+    if (error) throw error;
+    const { count: attCount } = await supabaseClient
+      .from('attendance').select('*', { count: 'exact', head: true });
+    dot.classList.add('active');
+    info.innerHTML = `พนักงาน <strong>${count ?? 0} คน</strong> &nbsp;|&nbsp; Attendance <strong>${attCount ?? 0} records</strong>`;
+  } catch(e) {
+    dot.classList.remove('active');
+    info.innerHTML = 'เชื่อมต่อ Supabase ไม่ได้ — ตรวจสอบ Config';
+  }
+  checkReady();
+}
+
+async function clearDB() {
+  if (!confirm('ต้องการลบข้อมูลทั้งหมดออกจาก Supabase?')) return;
+  if (!supabaseClient) { alert('ยังไม่ได้เชื่อมต่อ Supabase'); return; }
+  await supabaseClient.from('employees').delete().neq('emp_code', '');
+  await supabaseClient.from('shifts').delete().neq('shift_code', '');
+  log('ล้างข้อมูลใน Supabase แล้ว', 'warn');
+  refreshDBStatus();
+}
+
+// ═══════════════════════════════════════════
+//  FILE HANDLING
+// ═══════════════════════════════════════════
+function handleFileChange(input, num) {
+  const f = input.files[0];
+  if (!f) return;
+  files[num] = f;
+  const nameEl = document.getElementById('name' + num);
+  const boxEl  = document.getElementById('box' + num);
+  nameEl.textContent = f.name;
+  nameEl.classList.remove('empty');
+  boxEl.classList.add('has-file');
+  log(`เลือกไฟล์ ${num === 1 ? 'บัตรเวลา' : num === 2 ? 'Employee Master' : 'Line Check-in'}: ${f.name}`, 'ok');
+  checkReady();
+}
+
+async function checkReady() {
+  if (!supabaseClient) { document.getElementById('btnGenerate').disabled = true; return; }
+  try {
+    const { count } = await supabaseClient.from('employees').select('*', { count: 'exact', head: true });
+    const hasMasterDB = (count || 0) > 0;
+    document.getElementById('btnGenerate').disabled = !(files[1] && (files[2] || hasMasterDB));
+  } catch(e) {
+    document.getElementById('btnGenerate').disabled = true;
+  }
+}
+
+function readFile(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => res(e.target.result);
+    r.onerror = rej;
+    r.readAsArrayBuffer(file);
+  });
+}
+
+// ═══════════════════════════════════════════
+//  LOGGING & PROGRESS
+// ═══════════════════════════════════════════
+function log(msg, type = 'info') {
+  const box = document.getElementById('logBox');
+  const d   = document.createElement('div');
+  d.className = 'log-line ' + type;
+  const t = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  d.textContent = `[${t}] ${msg}`;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+
+function progress(pct) {
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+
+// ═══════════════════════════════════════════
+//  PARSERS
+// ═══════════════════════════════════════════
+
+/* Parse บัตรเวลา:
+   - Header: row index 3 (4th row)
+   - Data: row index 4 onwards
+   - All date/time values stored as strings  */
+function parseAttendance(wb) {
+  const ws   = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  const out  = [];
+
+  for (let i = 4; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r[2]) continue;                    // must have employee ID
+    const empId = String(r[2]).trim();
+    if (!empId || empId === 'ID') continue; // skip accidental header repeat
+
+    // Date: col L (index 11) = วันที่ตอกบัตรเข้า (primary), fallback col E (index 4) = วันที่
+    const parseExcelDate = v => {
+      if (!v || v === '--') return null;
+      if (typeof v === 'number') {
+        const d = XLSX.SSF.parse_date_code(v);
+        return `${d.y}-${pad2(d.m)}-${pad2(d.d)}`;
+      }
+      const s = String(v).substring(0, 10);
+      return s.match(/^\d{4}-\d{2}-\d{2}$/) ? s : null;
+    };
+    const date = parseExcelDate(r[11]) || parseExcelDate(r[4]);
+    if (!date) continue;
+
+    const clean = v => (v === '--' || v === null || v === undefined) ? null : String(v).trim();
+
+    // Convert time value: handles string "17:46", Excel serial 0.3652..., or date+time serial 46000.3652...
+    const cleanTime = v => {
+      if (v === '--' || v === null || v === undefined) return null;
+      if (typeof v === 'number') {
+        const frac = v % 1;                          // strip date part, keep time fraction
+        const totalMins = Math.round(frac * 24 * 60);
+        const h = Math.floor(totalMins / 60) % 24;
+        const m = totalMins % 60;
+        return `${pad2(h)}:${pad2(m)}`;
+      }
+      const s = String(v).trim();
+      return (s === '--' || !s) ? null : s;
+    };
+
+    out.push({
+      firstName   : clean(r[0]) || '',
+      lastName    : clean(r[1]) || '',
+      empId,
+      dept        : clean(r[3]) || '',
+      date,
+      schedule    : clean(r[6]) || '',
+      schedStart  : cleanTime(r[8]),
+      schedEnd    : cleanTime(r[10]),
+      clockInDate : clean(r[11]),
+      clockInTime : cleanTime(r[12]),
+      clockInSrc  : clean(r[13]) || '',
+      clockOutDate: clean(r[14]),
+      clockOutTime: cleanTime(r[15]),
+      clockOutSrc : clean(r[16]) || '',
+      status      : clean(r[17]) || '',
+      workTime    : cleanTime(r[18]) || '00:00',
+      lateTime    : cleanTime(r[20]) || '00:00',
+      leaveTime   : cleanTime(r[23]) || '00:00',
+      otTime      : cleanTime(r[24]) || '00:00',
+    });
+  }
+  return out;
+}
+
+/* Parse HWT Employee Master:
+   - Sheet: "Name List" — header row 0, data row 1+
+   - Sheet: "Shift"     — header rows 0-1, data row 2+       */
+function parseMaster(wb) {
+  const employees = {};
+  const shifts    = {};
+
+  // ── Name List ──
+  if (wb.SheetNames.includes('Name List')) {
+    const ws   = wb.Sheets['Name List'];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r[1]) continue;
+      const empCode   = String(r[1]).trim();
+      const dayShifts = {};                     // day number (1-31) → shift code
+      for (let d = 1; d <= 31; d++) {
+        const v = r[7 + d];                     // col 8 = day 1, col 38 = day 31
+        if (v) dayShifts[d] = String(v).trim();
+      }
+      employees[empCode] = {
+        empCode,
+        name       : String(r[2] || '').trim(),
+        grade      : String(r[3] || '').trim(),
+        position   : String(r[4] || '').trim(),
+        serviceType: String(r[5] || '').trim(),
+        paymentType: String(r[6] || '').trim(),
+        shiftRef   : String(r[7] || '').trim(),
+        dayShifts,
+      };
+    }
+  }
+
+  // ── Shift ──
+  if (wb.SheetNames.includes('Shift')) {
+    const ws   = wb.Sheets['Shift'];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+    // rows[0] = break header, rows[1] = column headers, data from rows[2]
+    for (let i = 2; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r[1]) continue;
+      const shiftCode  = String(r[1]).trim();
+      const timeStr    = r[5] ? String(r[5]).trim() : '';
+      const { s: tS, e: tE } = splitRange(timeStr);
+      const { s: b1Out, e: b1In } = splitRange(r[6] ? String(r[6]).trim() : '');
+      shifts[shiftCode] = { shiftCode, position: r[3]||'', type: r[4]||'', timeStr, timeStart: tS, timeEnd: tE, break1Out: b1Out, break1In: b1In };
+    }
+  }
+
+  return { employees, shifts };
+}
+
+/* Parse Line Check-in:
+   - Header: row index 4 (5th row)
+   - Data  : row index 5+
+   - Date format: "DD/MM/YYYY" — Buddhist Era year → convert to AD */
+function parseLineCheckin(wb) {
+  const ws   = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
+  const map  = {};  // "empId_dateAD" → [time, time, ...]
+
+  for (let i = 5; i < rows.length; i++) {
+    const r     = rows[i];
+    const empId = r[1] ? String(r[1]).trim() : null;
+    const dateTh= r[3] ? String(r[3]).trim() : null;
+    const time  = r[4] ? String(r[4]).trim() : null;
+    if (!empId || !dateTh || !time) continue;
+
+    const dateAD = thaiDateToAD(dateTh);
+    if (!dateAD) continue;
+    const key = `${empId}_${dateAD}`;
+    if (!map[key]) map[key] = [];
+    map[key].push(time);
+  }
+
+  // Compute first-in / last-out per employee-day
+  const result = {};
+  for (const [key, times] of Object.entries(map)) {
+    times.sort();
+    result[key] = { firstIn: times[0], lastOut: times[times.length - 1] };
+  }
+  return result;
+}
+
+// ═══════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function splitRange(str) {
+  // Handles "05:30 - 16:00", "09:00-09:30", "05.30-16.00"
+  if (!str) return { s: null, e: null };
+  const c = str.replace(/\s/g, '').replace(/\./g, ':');
+  const idx = c.lastIndexOf('-');
+  if (idx > 0) return { s: c.substring(0, idx), e: c.substring(idx + 1) };
+  return { s: str, e: null };
+}
+
+function thaiDateToAD(str) {
+  // "DD/MM/YYYY" (BE) → "YYYY-MM-DD" (CE)
+  const p = str.split('/');
+  if (p.length !== 3) return null;
+  const d = parseInt(p[0]), m = parseInt(p[1]), yBE = parseInt(p[2]);
+  if (isNaN(d) || isNaN(m) || isNaN(yBE)) return null;
+  return `${yBE - 543}-${pad2(m)}-${pad2(d)}`;
+}
+
+function fmtDuration(hhmm) {
+  if (!hhmm || hhmm === '--') return '00:00';
+  const p = String(hhmm).split(':');
+  const h = parseInt(p[0]) || 0, mn = parseInt(p[1]) || 0;
+  return `${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}`;
+}
+
+function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+
+function dateToDay(dateStr) {
+  // "2026-05-03" → 3
+  const p = String(dateStr).split('-');
+  return p.length === 3 ? parseInt(p[2]) : null;
+}
+
+// ═══════════════════════════════════════════
+//  MAIN GENERATE
+// ═══════════════════════════════════════════
+async function runGenerate() {
+  document.getElementById('btnGenerate').disabled = true;
+  progress(0);
+  log('════════════════ เริ่มสร้างรายงาน ════════════════', 'sep');
+
+  try {
+    const month = parseInt(document.getElementById('selMonth').value);
+    const year  = parseInt(document.getElementById('selYear').value);
+    log(`เดือน: ${MONTH_TH[month]} ${year}`, 'info');
+    progress(5);
+
+    // ── 1. Employee Master ──
+    let employees = {}, shifts = {};
+
+    if (files[2]) {
+      log('โหลด Employee Master จากไฟล์...', 'info');
+      const buf  = await readFile(files[2]);
+      const mWB  = XLSX.read(buf, { type: 'array' });
+      const parsed = parseMaster(mWB);
+      employees = parsed.employees;
+      shifts    = parsed.shifts;
+      // Upsert to Supabase (ทับข้อมูลเดิม)
+      await sbUpsertEmployees(Object.values(employees));
+      await sbUpsertShifts(Object.values(shifts));
+      log(`✓ บันทึก ${Object.keys(employees).length} พนักงาน, ${Object.keys(shifts).length} กะ ใน Supabase`, 'ok');
+      refreshDBStatus();
+    } else {
+      log('โหลด Employee Master จาก Supabase...', 'info');
+      const empArr   = await sbGetEmployees();
+      const shiftArr = await sbGetShifts();
+      empArr.forEach(e => employees[e.empCode] = e);
+      shiftArr.forEach(s => shifts[s.shiftCode] = s);
+      log(`✓ โหลด ${empArr.length} พนักงาน, ${shiftArr.length} กะ`, 'ok');
+    }
+
+    if (!Object.keys(employees).length) {
+      log('❌ ไม่พบข้อมูล Employee Master — กรุณาอัพโหลดไฟล์ HWT', 'error');
+      return;
+    }
+    progress(20);
+
+    // ── 2. Attendance ──
+    log('โหลดไฟล์บัตรเวลา...', 'info');
+    const attBuf = await readFile(files[1]);
+    const attWB  = XLSX.read(attBuf, { type: 'array' });
+    let att = parseAttendance(attWB);
+    log(`✓ โหลด ${att.length} รายการ`, 'ok');
+
+    // Detect available months in file → show in log
+    const monthsInFile = [...new Set(att.map(r => r.date.substring(0,7)))].sort();
+    log(`📂 เดือนในไฟล์บัตรเวลา: ${monthsInFile.join(', ')}`, 'info');
+
+    // Filter by selected month/year
+    att = att.filter(r => {
+      if (!r.date) return false;
+      const p = r.date.split('-');
+      return parseInt(p[0]) === year && parseInt(p[1]) === month;
+    });
+    log(`✓ กรองเดือน ${MONTH_TH[month]} ${year}: ${att.length} รายการ`, att.length > 0 ? 'ok' : 'warn');
+
+    if (att.length === 0) {
+      const suggest = monthsInFile.map(ym => {
+        const [y, m] = ym.split('-');
+        return `${MONTH_TH[parseInt(m)]} ${y}`;
+      }).join(', ');
+      log(`⚠️ ไม่พบข้อมูลในเดือนที่เลือก — ไฟล์มีข้อมูล: ${suggest || '(ไม่ทราบ)'}`, 'warn');
+      log('กรุณาเลือกเดือนให้ตรงกับไฟล์บัตรเวลา แล้วลองใหม่', 'warn');
+      progress(0);
+      return;
+    }
+    progress(40);
+
+    // ── 3. Line Check-in (optional) ──
+    let lineMap = {};
+    if (files[3]) {
+      log('โหลดไฟล์ Line Check-in...', 'info');
+      const lineBuf = await readFile(files[3]);
+      const lineWB  = XLSX.read(lineBuf, { type: 'array' });
+      lineMap = parseLineCheckin(lineWB);
+
+      // Only keep Line entries where empId exists in master
+      const masterIds = new Set(Object.keys(employees));
+      let kept = 0, dropped = 0;
+      for (const key of Object.keys(lineMap)) {
+        const empId = key.split('_')[0];
+        if (!masterIds.has(empId)) { delete lineMap[key]; dropped++; } else { kept++; }
+      }
+      log(`✓ Line Check-in: ${kept} รายการ (ตัดออก ${dropped} ไม่ match)`, 'ok');
+    }
+
+    // ── 4. Supplement attendance with Line check-in ──
+    let supplemented = 0;
+    att.forEach(r => {
+      if (!r.clockInTime) {
+        const k = `${r.empId}_${r.date}`;
+        if (lineMap[k]) {
+          r.clockInTime  = lineMap[k].firstIn;
+          r.clockInDate  = r.date;
+          r.clockInSrc   = 'Line';
+          if (lineMap[k].lastOut !== lineMap[k].firstIn) {
+            r.clockOutTime = lineMap[k].lastOut;
+            r.clockOutDate = r.date;
+            r.clockOutSrc  = 'Line';
+          }
+          supplemented++;
+        }
+      }
+    });
+    if (supplemented) log(`✓ เสริมข้อมูลจาก Line: ${supplemented} รายการ`, 'ok');
+    progress(55);
+
+    // ── 5. Save attendance to Supabase ──
+    if (supabaseClient && att.length > 0) {
+      log(`กำลัง upsert ${att.length} records ลง Supabase...`, 'info');
+      await sbUpsertAttendance(att);
+      log(`✓ บันทึก Attendance ลง Supabase (upsert ทับข้อมูลเดิม)`, 'ok');
+      refreshDBStatus();
+    }
+    progress(65);
+
+    // ── 7. Build Excel ──
+    log('สร้างไฟล์ Excel...', 'info');
+    const wb = XLSX.utils.book_new();
+    buildOverall(wb, att, employees, shifts, month, year);    log('✓ Overall sheet', 'ok');
+    buildPerson(wb, att, employees, shifts, month, year);     log('✓ Person sheet', 'ok');
+    buildAttendance(wb, att, employees, month, year);         log('✓ Attendance sheet', 'ok');
+    progress(90);
+
+    const fname = `HR_Report_${year}_${pad2(month)}.xlsx`;
+    XLSX.writeFile(wb, fname, { cellStyles: true });
+    progress(100);
+    log(`✓ ดาวน์โหลด "${fname}" สำเร็จ!`, 'ok');
+    log('════════════════════════════════════════════════', 'sep');
+
+  } catch(err) {
+    log(`❌ Error: ${err.message}`, 'error');
+    console.error(err);
+    progress(0);
+  } finally {
+    document.getElementById('btnGenerate').disabled = false;
+  }
+}
+
+// ═══════════════════════════════════════════
+//  SHEET BUILDERS
+// ═══════════════════════════════════════════
+
+// ── Shared header rows (rows 0-5 in aoa) ──
+function sharedHeaderRows(month, year) {
+  const today     = new Date();
+  const numDays   = daysInMonth(year, month);
+  const dateOut   = `${today.getFullYear()}-${pad2(today.getMonth()+1)}-${pad2(today.getDate())}`;
+  const rangeStr  = `ข้อมูลนำออกวันที่ ${year}-${pad2(month)}-01 ถึง ${year}-${pad2(month)}-${pad2(numDays)}`;
+
+  // Row 0: title spanning all cols
+  const r0 = ['รายงานการลงเวลารายวัน'];
+  // Row 1-3: branch / date info at col N (index 13)
+  const r1 = new Array(14).fill(null); r1[13] = 'สาขา Headquarter';
+  const r2 = new Array(14).fill(null); r2[13] = `วันที่นำออก ${dateOut}`;
+  const r3 = new Array(14).fill(null); r3[13] = rangeStr;
+  // Row 4: column headers
+  const r4 = [
+    'รหัสพนักงาน\nEmployee ID', 'ชื่อ-สกุล\nName',
+    'เข้างาน\nClock In', null, 'ออกงาน\nClock Out', null,
+    'พักเที่ยงออก\nBreak Out', null, 'พักเที่ยงเข้า\nBreak In', null,
+    'รวมเวลา\nWork Time',
+    'OT เข้า\nOT In', null, 'OT ออก\nOT Out', null,
+    'รวมเวลา\nOT Time', 'OT ที่ขอ (ชม.)\nOT Requested (Hr.)'
+  ];
+  // Row 5: sub-headers
+  const r5 = [
+    null, null,
+    'วันที่\nDate','เวลา\nTime', 'วันที่\nDate','เวลา\nTime',
+    'วันที่\nDate','เวลา\nTime', 'วันที่\nDate','เวลา\nTime',
+    null,
+    'วันที่\nDate','เวลา\nTime', 'วันที่\nDate','เวลา\nTime',
+    null, 'วันที่\nDate'
+  ];
+  return [r0, r1, r2, r3, r4, r5];
+}
+
+const MERGES_HEADER = [
+  {s:{r:0,c:0}, e:{r:0,c:16}},   // Title
+  {s:{r:1,c:13},e:{r:1,c:16}},   // N2:Q2 — สาขา
+  {s:{r:2,c:13},e:{r:2,c:16}},   // N3:Q3 — วันที่นำออก
+  {s:{r:3,c:13},e:{r:3,c:16}},   // N4:Q4 — ช่วงข้อมูล
+  {s:{r:4,c:0}, e:{r:5,c:0}},    // Emp ID
+  {s:{r:4,c:1}, e:{r:5,c:1}},    // Name
+  {s:{r:4,c:2}, e:{r:4,c:3}},    // Clock In
+  {s:{r:4,c:4}, e:{r:4,c:5}},    // Clock Out
+  {s:{r:4,c:6}, e:{r:4,c:7}},    // Break Out
+  {s:{r:4,c:8}, e:{r:4,c:9}},    // Break In
+  {s:{r:4,c:10},e:{r:5,c:10}},   // Work Time
+  {s:{r:4,c:11},e:{r:4,c:12}},   // OT In
+  {s:{r:4,c:13},e:{r:4,c:14}},   // OT Out
+  {s:{r:4,c:15},e:{r:5,c:15}},   // OT Time
+  {s:{r:4,c:16},e:{r:5,c:16}},   // OT Requested
+];
+
+const COL_WIDTHS = [
+  {wch:15},{wch:22},{wch:12},{wch:8},{wch:12},{wch:8},
+  {wch:12},{wch:8},{wch:12},{wch:8},{wch:10},
+  {wch:12},{wch:8},{wch:12},{wch:8},{wch:10},{wch:10}
+];
+
+// Force a value to string cell — prevents Excel auto-converting "06:28" to decimal
+const strCell = v => v ? { t: 's', v: String(v) } : null;
+
+// Build a single data row for Overall / Person sheets
+function buildDataRow(r, employees, shifts) {
+  const emp    = employees[r.empId];
+  const name   = emp ? emp.name : `${r.firstName} ${r.lastName}`.trim();
+  const day    = dateToDay(r.date);
+  const shiftCode = (emp && emp.dayShifts && day) ? emp.dayShifts[day] : null;
+  const sd     = shiftCode ? shifts[shiftCode] : null;
+
+  const b1Out  = sd ? sd.break1Out : null;
+  const b1In   = sd ? sd.break1In  : null;
+  const tEnd   = sd ? sd.timeEnd   : null;
+
+  const hasOT  = r.otTime && r.otTime !== '00:00';
+  const wt     = fmtDuration(r.workTime);
+  const ot     = hasOT ? fmtDuration(r.otTime) : null;
+
+  return [
+    r.empId, name,
+    r.clockInTime  ? r.date : null, strCell(r.clockInTime),   // C=date  D=time (HH:MM)
+    r.clockOutTime ? r.date : null, strCell(r.clockOutTime),  // E=date  F=time (HH:MM)
+    b1Out          ? r.date : null, strCell(b1Out),           // G=date  H=time (HH:MM)
+    b1In           ? r.date : null, strCell(b1In),            // I=date  J=time (HH:MM)
+    strCell(wt),                                               // K=Work Time (HH:MM)
+    (hasOT && tEnd)           ? r.date : null, strCell(hasOT && tEnd           ? tEnd          : null),  // OT In
+    (hasOT && r.clockOutTime) ? r.date : null, strCell(hasOT && r.clockOutTime ? r.clockOutTime : null),  // OT Out
+    strCell(ot), null  // OT Time, OT Requested
+  ];
+}
+
+// ── Overall sheet: grouped by ServiceType → Position ──
+function buildOverall(wb, att, employees, shifts, month, year) {
+  const aoa     = sharedHeaderRows(month, year);
+  const merges  = [...MERGES_HEADER];
+  let rowIdx    = aoa.length;
+
+  // Group: serviceType+position
+  const groups = {};
+  att.forEach(r => {
+    const emp  = employees[r.empId];
+    const dept = emp ? emp.serviceType : (r.dept || '—');
+    const pos  = emp ? emp.position    : '';
+    const key  = `${dept}|||${pos}`;
+    if (!groups[key]) groups[key] = { dept, pos, rows: [] };
+    groups[key].rows.push(r);
+  });
+
+  // Sort groups by service type
+  const sortedKeys = Object.keys(groups).sort();
+  sortedKeys.forEach(key => {
+    const g = groups[key];
+    // Group header row
+    const gh = new Array(17).fill(null);
+    gh[0] = `แผนก (Department) : ${g.dept}`;
+    gh[4] = `กลุ่มงาน (Work Group) : ${g.pos}`;
+    aoa.push(gh);
+    merges.push({s:{r:rowIdx,c:0},e:{r:rowIdx,c:3}});   // merge dept label
+    merges.push({s:{r:rowIdx,c:4},e:{r:rowIdx,c:16}});  // merge workgroup label
+    rowIdx++;
+
+    // Sort records: by date then empId
+    g.rows.sort((a,b) => (a.date||'').localeCompare(b.date||'') || a.empId.localeCompare(b.empId));
+    g.rows.forEach(r => { aoa.push(buildDataRow(r, employees, shifts)); rowIdx++; });
+
+    // Spacer row
+    aoa.push(new Array(17).fill(null));
+    rowIdx++;
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges'] = merges;
+  ws['!cols']   = COL_WIDTHS;
+  applyStyles(ws, 6);
+  XLSX.utils.book_append_sheet(wb, ws, 'Overall');
+}
+
+// ── Person sheet: grouped by employee ──
+function buildPerson(wb, att, employees, shifts, month, year) {
+  const aoa     = sharedHeaderRows(month, year);
+  const merges  = [...MERGES_HEADER];
+  let rowIdx    = aoa.length;
+
+  // Group: empId
+  const groups = {};
+  att.forEach(r => {
+    if (!groups[r.empId]) {
+      const emp  = employees[r.empId];
+      const name = emp ? emp.name : `${r.firstName} ${r.lastName}`.trim();
+      groups[r.empId] = { empId: r.empId, name, rows: [] };
+    }
+    groups[r.empId].rows.push(r);
+  });
+
+  const sortedEmpIds = Object.keys(groups).sort();
+  sortedEmpIds.forEach(empId => {
+    const g = groups[empId];
+    const gh = new Array(17).fill(null);
+    gh[0] = `พนักงาน : ${g.empId} — ${g.name}`;
+    aoa.push(gh);
+    merges.push({s:{r:rowIdx,c:0},e:{r:rowIdx,c:16}});
+    rowIdx++;
+
+    g.rows.sort((a,b) => (a.date||'').localeCompare(b.date||''));
+    g.rows.forEach(r => { aoa.push(buildDataRow(r, employees, shifts)); rowIdx++; });
+    aoa.push(new Array(17).fill(null));
+    rowIdx++;
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges'] = merges;
+  ws['!cols']   = COL_WIDTHS;
+  applyStyles(ws, 6);
+  XLSX.utils.book_append_sheet(wb, ws, 'Person');
+}
+
+// ── Attendance sheet: grid employee × day (status) ──
+function buildAttendance(wb, att, employees, month, year) {
+  const today   = new Date();
+  const numDays = daysInMonth(year, month);
+  const dateOut = `${today.getFullYear()}-${pad2(today.getMonth()+1)}-${pad2(today.getDate())}`;
+  const aoa     = [];
+
+  // Title rows
+  // AF=31, AI=34, AD=29 — ensure rows are wide enough (at least 35 cols)
+  const rowWidth = Math.max(5 + numDays, 35);
+  aoa.push(['รายงานสถานะการเข้างานรายวัน']);
+  const r1 = new Array(rowWidth).fill(null); r1[31] = 'สาขา Headquarter';
+  const r2 = new Array(rowWidth).fill(null); r2[31] = `วันที่นำออก ${dateOut}`;
+  const r3 = new Array(rowWidth).fill(null);
+  r3[29] = `ข้อมูลนำออกวันที่ ${year}-${pad2(month)}-01 ถึง ${year}-${pad2(month)}-${pad2(numDays)}`;
+  aoa.push(r1); aoa.push(r2); aoa.push(r3);
+
+  // Header row: employee info + day numbers
+  const hdr = ['รหัสพนักงาน','ชื่อ-สกุล','ตำแหน่ง','แผนก','ประเภทกะ'];
+  for (let d = 1; d <= numDays; d++) hdr.push(d);
+  aoa.push(hdr);
+
+  // Build lookup: empId → { day → record }
+  const attMap = {};
+  att.forEach(r => {
+    const day = dateToDay(r.date);
+    if (!day) return;
+    if (!attMap[r.empId]) attMap[r.empId] = {};
+    attMap[r.empId][day] = r;
+  });
+
+  // One row per employee (sorted by service type, then name)
+  const empList = Object.values(employees).sort((a,b) => {
+    const sc = (a.serviceType||'').localeCompare(b.serviceType||'');
+    return sc !== 0 ? sc : (a.name||'').localeCompare(b.name||'');
+  });
+
+  empList.forEach(emp => {
+    const row = [emp.empCode, emp.name, emp.position, emp.serviceType, emp.shiftRef];
+    for (let d = 1; d <= numDays; d++) {
+      const shiftCode = emp.dayShifts ? emp.dayShifts[d] : null;
+      const rec = attMap[emp.empCode] ? attMap[emp.empCode][d] : null;
+
+      if (rec) {
+        row.push(statusLabel(rec));
+      } else if (shiftCode) {
+        row.push('ขาด');   // มีกะแต่ไม่มีข้อมูลลงเวลา = ขาด
+      } else {
+        row.push('');      // ไม่มีกะวันนั้น = ว่าง
+      }
+    }
+    aoa.push(row);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Merges
+  const merges = [
+    {s:{r:0,c:0}, e:{r:0,c:rowWidth-1}},  // title row
+    {s:{r:1,c:31},e:{r:1,c:34}},           // AF2:AI2 — สาขา
+    {s:{r:2,c:31},e:{r:2,c:34}},           // AF3:AI3 — วันที่นำออก
+    {s:{r:3,c:29},e:{r:3,c:34}},           // AD4:AI4 — ช่วงข้อมูล
+  ];
+  ws['!merges'] = merges;
+
+  // Widths
+  const cols = [{wch:14},{wch:22},{wch:18},{wch:30},{wch:12}];
+  for (let d = 1; d <= numDays; d++) cols.push({wch:5});
+  ws['!cols'] = cols;
+  applyStyles(ws, 5);
+  XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+}
+
+// ═══════════════════════════════════════════
+//  CELL STYLING — center align all cells
+// ═══════════════════════════════════════════
+function applyStyles(ws, headerRows) {
+  if (!ws['!ref']) return;
+  const range = XLSX.utils.decode_range(ws['!ref']);
+
+  // Color palette
+  const CLR_HEADER_BG   = '1A3A5C';   // dark navy  — rows 5-6
+  const CLR_HEADER_FG   = 'FFFFFF';   // white text
+  const CLR_TITLE_BG    = '2E5F8A';   // slightly lighter navy — row 1
+  const CLR_GROUP_BG    = 'D6E4F0';   // light blue — group header rows
+  const CLR_GROUP_FG    = '1A3A5C';
+  const CLR_DATA_ODD    = 'FFFFFF';
+  const CLR_DATA_EVEN   = 'F5F8FC';   // very light stripe
+
+  // Detect group-header rows (col A starts with "แผนก" or "พนักงาน")
+  const groupHeaderRows = new Set();
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    const a1 = ws[XLSX.utils.encode_cell({ r: R, c: 0 })];
+    const val = a1 && a1.v ? String(a1.v) : '';
+    if (val.startsWith('แผนก') || val.startsWith('พนักงาน')) groupHeaderRows.add(R);
+  }
+
+  let dataRowCount = 0;
+
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    const isTitle      = R === 0;
+    const isMeta       = R >= 1 && R < 4;       // rows 2-4 (info rows)
+    const isColHeader  = R === 4;                // row 5 — main header
+    const isSubHeader  = R === 5;                // row 6 — Date/Time sub-header
+    const isGroupHdr   = groupHeaderRows.has(R);
+    const isData       = R >= headerRows && !isGroupHdr;
+    if (isData) dataRowCount++;
+
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+
+      let bg = null, fg = '000000', bold = false, sz = 10, wrap = false;
+
+      if (isTitle) {
+        bg = CLR_TITLE_BG; fg = CLR_HEADER_FG; bold = true; sz = 13; wrap = false;
+      } else if (isMeta) {
+        fg = '555555'; sz = 9;
+      } else if (isColHeader) {
+        bg = CLR_HEADER_BG; fg = CLR_HEADER_FG; bold = true; sz = 10; wrap = true;
+      } else if (isSubHeader) {
+        bg = CLR_HEADER_BG; fg = CLR_HEADER_FG; bold = true; sz = 9; wrap = true;
+      } else if (isGroupHdr) {
+        bg = CLR_GROUP_BG; fg = CLR_GROUP_FG; bold = true; sz = 10;
+      } else if (isData) {
+        bg = (dataRowCount % 2 === 0) ? CLR_DATA_EVEN : CLR_DATA_ODD;
+        sz = 10;
+      }
+
+      ws[addr].s = {
+        fill: bg ? { patternType: 'solid', fgColor: { rgb: bg } } : undefined,
+        font: { bold, sz, color: { rgb: fg } },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: wrap },
+        border: {
+          top:    { style: 'thin', color: { rgb: 'D0D8E4' } },
+          bottom: { style: 'thin', color: { rgb: 'D0D8E4' } },
+          left:   { style: 'thin', color: { rgb: 'D0D8E4' } },
+          right:  { style: 'thin', color: { rgb: 'D0D8E4' } },
+        },
+      };
+    }
+  }
+
+  // Explicit center+middle for all row-spanning merged header cells
+  // (A5:A6, B5:B6, K5:K6, P5:P6, Q5:Q6)
+  [[4,0],[4,1],[4,10],[4,15],[4,16]].forEach(([r,c]) => {
+    const addr = XLSX.utils.encode_cell({ r, c });
+    if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+    ws[addr].s = {
+      fill      : { patternType: 'solid', fgColor: { rgb: CLR_HEADER_BG } },
+      font      : { bold: true, sz: 10, color: { rgb: CLR_HEADER_FG } },
+      alignment : { horizontal: 'center', vertical: 'center', wrapText: true },
+      border    : {
+        top   : { style: 'thin', color: { rgb: 'D0D8E4' } },
+        bottom: { style: 'thin', color: { rgb: 'D0D8E4' } },
+        left  : { style: 'thin', color: { rgb: 'D0D8E4' } },
+        right : { style: 'thin', color: { rgb: 'D0D8E4' } },
+      },
+    };
+  });
+
+  // Row heights
+  const rowHeights = [];
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    if (R === 0)            rowHeights[R] = { hpt: 24 };
+    else if (R < 4)         rowHeights[R] = { hpt: 15 };
+    else if (R === 4)       rowHeights[R] = { hpt: 38 };
+    else if (R === 5)       rowHeights[R] = { hpt: 30 };
+    else if (groupHeaderRows.has(R)) rowHeights[R] = { hpt: 20 };
+    else                    rowHeights[R] = { hpt: 18 };
+  }
+  ws['!rows'] = rowHeights;
+}
+
+function statusLabel(rec) {
+  if (!rec) return 'ขาด';
+  // Has clock-in → ปกติ or สาย
+  if (rec.clockInTime) {
+    if (rec.lateTime && rec.lateTime !== '00:00') return 'สาย';
+    return 'ปกติ';
+  }
+  return 'ขาด';
+}
+</script>
+</body>
+</html>
