@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HR Report Generator</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', Tahoma, 'TH Sarabun New', sans-serif; background: #eef2f7; color: #2c3e50; min-height: 100vh; }
@@ -416,7 +416,15 @@ function initSupabase() {
   const { url, key } = getSupabaseConfig();
   if (!url || !key) return false;
   try {
-    supabaseClient = supabase.createClient(url, key);
+    const lib = window.supabase || window.Supabase;
+    if (!lib || !lib.createClient) {
+      log('Supabase library ยังโหลดไม่เสร็จ — refresh หน้าแล้วลองใหม่', 'error');
+      return false;
+    }
+    // Reuse existing client to avoid "multiple instances" warning
+    if (!supabaseClient) {
+      supabaseClient = lib.createClient(url, key);
+    }
     return true;
   } catch(e) {
     log('Supabase init error: ' + e.message, 'error');
@@ -427,23 +435,41 @@ function initSupabase() {
 async function saveSupabaseConfig() {
   const url = document.getElementById('sbUrl').value.trim();
   const key = document.getElementById('sbKey').value.trim();
+  const sbStatus = document.getElementById('sbStatus');
   if (!url || !key) { alert('กรุณากรอก URL และ Key ให้ครบ'); return; }
+
+  // Reset client so new config takes effect
+  supabaseClient = null;
   localStorage.setItem('sbUrl', url);
   localStorage.setItem('sbKey', key);
+
+  sbStatus.textContent = '⏳ กำลังเชื่อมต่อ...';
+  sbStatus.style.color = '#888';
+
   const ok = initSupabase();
-  if (ok) {
-    // Test connection
-    const { error } = await supabaseClient.from('employees').select('emp_code', { count: 'exact', head: true });
-    const sbStatus = document.getElementById('sbStatus');
+  if (!ok) {
+    sbStatus.textContent = '❌ สร้าง client ไม่ได้';
+    sbStatus.style.color = '#e74c3c';
+    return;
+  }
+
+  try {
+    // Simple test query
+    const { error } = await supabaseClient.from('employees').select('emp_code').limit(1);
     if (error) {
-      sbStatus.textContent = '❌ เชื่อมต่อไม่ได้: ' + error.message;
+      sbStatus.textContent = '❌ ' + error.message;
       sbStatus.style.color = '#e74c3c';
+      console.error('Supabase error:', error);
     } else {
       sbStatus.textContent = '✅ เชื่อมต่อสำเร็จ';
       sbStatus.style.color = '#27ae60';
       log('เชื่อมต่อ Supabase สำเร็จ', 'ok');
       refreshDBStatus();
     }
+  } catch(e) {
+    sbStatus.textContent = '❌ ' + e.message;
+    sbStatus.style.color = '#e74c3c';
+    console.error('Supabase exception:', e);
   }
 }
 
