@@ -282,13 +282,12 @@ const MONTH_TH = ['','มกราคม','กุมภาพันธ์','ม�
     selY.appendChild(o);
   }
   document.getElementById('selMonth').value = now.getMonth() + 1;
-  openDB();
 })();
 
 // ═══════════════════════════════════════════
 //  SETTINGS — LINE CHECK-IN URL
 // ═══════════════════════════════════════════
-const DEFAULT_LINE_URL = 'https://klock-pdp.schooney.tech:5443/report/check-in-location/excel';
+var DEFAULT_LINE_URL = 'https://klock-pdp.schooney.tech:5443/report/check-in-location/excel';
 
 function getLineUrl() {
   return localStorage.getItem('lineCheckinUrl') || DEFAULT_LINE_URL;
