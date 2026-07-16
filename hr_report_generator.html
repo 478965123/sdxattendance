@@ -6,6 +6,7 @@
 <title>HR Report Generator</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', Tahoma, 'TH Sarabun New', sans-serif; background: #eef2f7; color: #2c3e50; min-height: 100vh; }
@@ -236,6 +237,18 @@ input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; 
         </div>
         <div style="font-size:0.74rem;color:#8899aa;margin-top:5px;">URL นี้จะถูกบันทึกในเครื่องนี้ (localStorage) — ใช้ปุ่มด้านบนเพื่อดาวน์โหลดไฟล์ .xls โดยตรง</div>
       </div>
+
+      <!-- Logo Upload -->
+      <div style="margin-bottom:4px;">
+        <div style="font-size:0.82rem;color:#555;margin-bottom:6px;font-weight:600;">🖼️ โลโก้บริษัท (มุมซ้ายบนของ Excel)</div>
+        <div class="settings-row">
+          <input type="file" id="logoFileInput" accept="image/*" style="display:none;" onchange="handleLogoUpload(event)">
+          <button class="btn-save" onclick="document.getElementById('logoFileInput').click()">อัพโหลดโลโก้</button>
+          <button class="btn-save" style="background:#888;" onclick="clearLogo()">ลบโลโก้</button>
+          <div id="logoStatus" style="font-size:0.78rem;color:#888;margin-left:8px;"></div>
+        </div>
+        <div id="logoPreview" style="margin-top:8px;"></div>
+      </div>
     </div>
   </div>
 
@@ -282,6 +295,8 @@ const MONTH_TH = ['','มกราคม','กุมภาพันธ์','ม�
     selY.appendChild(o);
   }
   document.getElementById('selMonth').value = now.getMonth() + 1;
+  // init logo status after DOM ready
+  setTimeout(refreshLogoStatus, 0);
 })();
 
 // ═══════════════════════════════════════════
@@ -316,13 +331,155 @@ function refreshLineUrlStatus() {
   if (el)  el.textContent = `URL: ${url}`;
 }
 
+// ── Logo ──
+function handleLogoUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    localStorage.setItem('reportLogo', ev.target.result);
+    refreshLogoStatus();
+    log('✓ บันทึกโลโก้แล้ว', 'ok');
+  };
+  reader.readAsDataURL(file);
+}
+function clearLogo() {
+  localStorage.removeItem('reportLogo');
+  refreshLogoStatus();
+  log('ลบโลโก้แล้ว', 'info');
+}
+function refreshLogoStatus() {
+  const b64 = localStorage.getItem('reportLogo');
+  const el  = document.getElementById('logoStatus');
+  const pv  = document.getElementById('logoPreview');
+  if (!el) return;
+  if (b64) {
+    el.textContent = '✅ มีโลโก้'; el.style.color = '#27ae60';
+    pv.innerHTML = `<img src="${b64}" style="max-height:44px;max-width:200px;border:1px solid #dde;border-radius:4px;padding:4px;background:white;">`;
+  } else {
+    el.textContent = '— ยังไม่มีโลโก้'; el.style.color = '#888';
+    pv.innerHTML = '';
+  }
+}
+
+// ── Inject logo into generated xlsx binary via JSZip ──
+async function injectLogoIntoXlsx(xlsxArray, logoDataUrl) {
+  try {
+    const match = logoDataUrl.match(/^data:(image\/\w+);base64,(.+)$/s);
+    if (!match) return xlsxArray;
+    const mimeType = match[1];
+    const ext      = mimeType.split('/')[1].replace('jpeg','jpg');
+    const imgB64   = match[2];
+
+    const zip = await JSZip.loadAsync(xlsxArray);
+
+    // 1. Add image file (shared across all sheets)
+    zip.file(`xl/media/logo.${ext}`, imgB64, { base64: true });
+
+    // Drawing XML template — oneCellAnchor: fixed size, floats over cells
+    // 1 inch = 914400 EMU → logo: ~1.85" × 0.5"
+    const makeDrawingXml = (picId) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <xdr:oneCellAnchor>
+    <xdr:from><xdr:col>0</xdr:col><xdr:colOff>114300</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>114300</xdr:rowOff></xdr:from>
+    <xdr:ext cx="1700000" cy="457200"/>
+    <xdr:pic>
+      <xdr:nvPicPr>
+        <xdr:cNvPr id="${picId}" name="Logo"/>
+        <xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr>
+      </xdr:nvPicPr>
+      <xdr:blipFill>
+        <a:blip r:embed="rId_logo"/>
+        <a:stretch><a:fillRect/></a:stretch>
+      </xdr:blipFill>
+      <xdr:spPr>
+        <a:xfrm><a:off x="0" y="0"/><a:ext cx="1700000" cy="457200"/></a:xfrm>
+        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+      </xdr:spPr>
+    </xdr:pic>
+    <xdr:clientData/>
+  </xdr:oneCellAnchor>
+</xdr:wsDr>`;
+
+    const makeDrawRels = (imgExt) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId_logo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/logo.${imgExt}"/>
+</Relationships>`;
+
+    // 2. Inject logo into each sheet (sheet1, sheet2, sheet3)
+    const sheetCount = 3;
+    for (let i = 1; i <= sheetCount; i++) {
+      const drawingName = `drawing${i}.xml`;
+      const drawingPath = `xl/drawings/${drawingName}`;
+      const drawRelsPath = `xl/drawings/_rels/${drawingName}.rels`;
+      const sheetPath   = `xl/worksheets/sheet${i}.xml`;
+      const sheetRelsPath = `xl/worksheets/_rels/sheet${i}.xml.rels`;
+      const drawRef     = `rId_drawing${i}`;
+
+      // Skip if sheet doesn't exist
+      if (!zip.file(sheetPath)) continue;
+
+      // 2a. Create drawing XML
+      zip.file(drawingPath, makeDrawingXml(i + 1));
+
+      // 2b. Create drawing relationships
+      zip.file(drawRelsPath, makeDrawRels(ext));
+
+      // 2c. Patch sheet XML — add <drawing> reference before </worksheet>
+      let sheetXml = await zip.file(sheetPath).async('string');
+      if (!sheetXml.includes('<drawing ')) {
+        if (!sheetXml.includes('xmlns:r=')) {
+          sheetXml = sheetXml.replace('<worksheet ', '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ');
+        }
+        sheetXml = sheetXml.replace('</worksheet>', `<drawing r:id="${drawRef}"/></worksheet>`);
+      }
+      zip.file(sheetPath, sheetXml);
+
+      // 2d. Patch sheet _rels
+      const relsFile = zip.file(sheetRelsPath);
+      let relsXml;
+      if (relsFile) {
+        relsXml = await relsFile.async('string');
+        if (!relsXml.includes(drawRef)) {
+          relsXml = relsXml.replace('</Relationships>',
+            `<Relationship Id="${drawRef}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/${drawingName}"/></Relationships>`);
+        }
+      } else {
+        relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="${drawRef}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/${drawingName}"/>
+</Relationships>`;
+      }
+      zip.file(sheetRelsPath, relsXml);
+    }
+
+    // 3. Patch [Content_Types].xml — add drawing content type entries for all sheets
+    let ctXml = await zip.file('[Content_Types].xml').async('string');
+    for (let i = 1; i <= sheetCount; i++) {
+      const partName = `/xl/drawings/drawing${i}.xml`;
+      if (!ctXml.includes(partName)) {
+        ctXml = ctXml.replace('</Types>',
+          `<Override PartName="${partName}" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>`);
+      }
+    }
+    zip.file('[Content_Types].xml', ctXml);
+
+    return await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
+  } catch(e) {
+    console.error('injectLogo error:', e);
+    return xlsxArray; // fallback: return original
+  }
+}
+
 function toggleSettings() {
   const panel = document.getElementById('settingsPanel');
   const arrow = document.getElementById('settingsArrow');
   const open  = panel.style.display === 'none';
   panel.style.display = open ? 'block' : 'none';
   arrow.textContent   = open ? '▲' : '▼';
-  if (open) refreshLineUrlStatus();
+  if (open) { refreshLineUrlStatus(); refreshLogoStatus(); }
 }
 
 function downloadLineFile(e) {
@@ -617,14 +774,25 @@ function handleFileChange(input, num) {
 }
 
 async function checkReady() {
-  if (!supabaseClient) { document.getElementById('btnGenerate').disabled = true; return; }
-  try {
-    const { count } = await supabaseClient.from('employees').select('*', { count: 'exact', head: true });
-    const hasMasterDB = (count || 0) > 0;
-    document.getElementById('btnGenerate').disabled = !(files[1] && (files[2] || hasMasterDB));
-  } catch(e) {
+  // ต้องมีไฟล์บัตรเวลา (files[1]) เป็นอย่างน้อย
+  // files[2] = Employee Master (optional ถ้ามี DB) หรือ files[3] = Line Check-in (optional)
+  if (!files[1]) {
     document.getElementById('btnGenerate').disabled = true;
+    return;
   }
+  // ถ้ามี Supabase ให้เช็ค Employee count ใน DB ด้วย
+  if (supabaseClient) {
+    try {
+      const { count } = await supabaseClient.from('employees').select('*', { count: 'exact', head: true });
+      const hasMasterDB = (count || 0) > 0;
+      document.getElementById('btnGenerate').disabled = !(files[2] || hasMasterDB);
+      return;
+    } catch(e) {
+      // Supabase error — ไม่บล็อก ให้ใช้ไฟล์แทน
+    }
+  }
+  // ไม่มี Supabase: ต้องมีไฟล์ Employee Master
+  document.getElementById('btnGenerate').disabled = !files[2];
 }
 
 function readFile(file) {
@@ -872,11 +1040,19 @@ async function runGenerate() {
       const parsed = parseMaster(mWB);
       employees = parsed.employees;
       shifts    = parsed.shifts;
-      // Upsert to Supabase (ทับข้อมูลเดิม)
-      await sbUpsertEmployees(Object.values(employees));
-      await sbUpsertShifts(Object.values(shifts));
-      log(`✓ บันทึก ${Object.keys(employees).length} พนักงาน, ${Object.keys(shifts).length} กะ ใน Supabase`, 'ok');
-      refreshDBStatus();
+      // Upsert to Supabase (ทับข้อมูลเดิม) — optional, ไม่ block ถ้าเชื่อมไม่ได้
+      if (supabaseClient) {
+        try {
+          await sbUpsertEmployees(Object.values(employees));
+          await sbUpsertShifts(Object.values(shifts));
+          log(`✓ บันทึก ${Object.keys(employees).length} พนักงาน, ${Object.keys(shifts).length} กะ ใน Supabase`, 'ok');
+          refreshDBStatus();
+        } catch(sbErr) {
+          log(`⚠️ บันทึก Supabase ไม่สำเร็จ (${sbErr.message}) — ใช้ข้อมูลจากไฟล์แทน`, 'warn');
+        }
+      } else {
+        log('⚠️ ยังไม่ได้เชื่อมต่อ Supabase — ใช้ข้อมูลจากไฟล์เท่านั้น', 'warn');
+      }
     } else {
       log('โหลด Employee Master จาก Supabase...', 'info');
       const empArr   = await sbGetEmployees();
@@ -965,9 +1141,13 @@ async function runGenerate() {
     // ── 5. Save attendance to Supabase ──
     if (supabaseClient && att.length > 0) {
       log(`กำลัง upsert ${att.length} records ลง Supabase...`, 'info');
-      await sbUpsertAttendance(att);
-      log(`✓ บันทึก Attendance ลง Supabase (upsert ทับข้อมูลเดิม)`, 'ok');
-      refreshDBStatus();
+      try {
+        await sbUpsertAttendance(att);
+        log(`✓ บันทึก Attendance ลง Supabase (upsert ทับข้อมูลเดิม)`, 'ok');
+        refreshDBStatus();
+      } catch(sbErr) {
+        log(`⚠️ บันทึก Attendance ไม่สำเร็จ (${sbErr.message}) — สร้างรายงานต่อไป`, 'warn');
+      }
     }
     progress(65);
 
@@ -979,8 +1159,18 @@ async function runGenerate() {
     buildAttendance(wb, att, employees, month, year);         log('✓ Attendance sheet', 'ok');
     progress(90);
 
-    const fname = `HR_Report_${year}_${pad2(month)}.xlsx`;
-    XLSX.writeFile(wb, fname, { cellStyles: true });
+    const fname    = `HR_Report_${year}_${pad2(month)}.xlsx`;
+    const logoB64  = localStorage.getItem('reportLogo');
+    if (logoB64) {
+      const xlsxArr = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
+      const modified = await injectLogoIntoXlsx(xlsxArr, logoB64);
+      const blob = new Blob([modified], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a'); a.href = url; a.download = fname; a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      XLSX.writeFile(wb, fname, { cellStyles: true });
+    }
     progress(100);
     log(`✓ ดาวน์โหลด "${fname}" สำเร็จ!`, 'ok');
     log('════════════════════════════════════════════════', 'sep');
@@ -998,21 +1188,27 @@ async function runGenerate() {
 //  SHEET BUILDERS
 // ═══════════════════════════════════════════
 
-// ── Shared header rows (rows 0-5 in aoa) ──
+// ── Shared header rows (rows 0-7 in aoa) ──
 function sharedHeaderRows(month, year) {
   const today     = new Date();
   const numDays   = daysInMonth(year, month);
   const dateOut   = `${today.getFullYear()}-${pad2(today.getMonth()+1)}-${pad2(today.getDate())}`;
   const rangeStr  = `ข้อมูลนำออกวันที่ ${year}-${pad2(month)}-01 ถึง ${year}-${pad2(month)}-${pad2(numDays)}`;
 
-  // Row 0: title spanning all cols
-  const r0 = ['รายงานการลงเวลารายวัน'];
-  // Row 1-3: branch / date info at col N (index 13)
-  const r1 = new Array(14).fill(null); r1[13] = 'สาขา Headquarter';
-  const r2 = new Array(14).fill(null); r2[13] = `วันที่นำออก ${dateOut}`;
-  const r3 = new Array(14).fill(null); r3[13] = rangeStr;
-  // Row 4: column headers
-  const r4 = [
+  // Row 0: Company name TH
+  const r0 = ['โซเด็กซ์โซ (ประเทศไทย) จำกัด'];
+  // Row 1: Company name EN
+  const r1 = ['Sodexo (Thailand) Ltd.'];
+  // Row 2: BLANK separator row
+  const r2 = [];
+  // Row 3: report title
+  const r3 = ['รายงานการลงเวลารายวัน'];
+  // Row 4-6: branch / date info at col N (index 13)
+  const r4 = new Array(14).fill(null); r4[13] = 'สาขา Headquarter';
+  const r5 = new Array(14).fill(null); r5[13] = `วันที่นำออก ${dateOut}`;
+  const r6 = new Array(14).fill(null); r6[13] = rangeStr;
+  // Row 7: column headers
+  const r7 = [
     'รหัสพนักงาน\nEmployee ID', 'ชื่อ-สกุล\nName',
     'เข้างาน\nClock In', null, 'ออกงาน\nClock Out', null,
     'พักเที่ยงออก\nBreak Out', null, 'พักเที่ยงเข้า\nBreak In', null,
@@ -1020,8 +1216,8 @@ function sharedHeaderRows(month, year) {
     'OT เข้า\nOT In', null, 'OT ออก\nOT Out', null,
     'รวมเวลา\nOT Time', 'OT ที่ขอ (ชม.)\nOT Requested (Hr.)'
   ];
-  // Row 5: sub-headers
-  const r5 = [
+  // Row 8: sub-headers
+  const r8 = [
     null, null,
     'วันที่\nDate','เวลา\nTime', 'วันที่\nDate','เวลา\nTime',
     'วันที่\nDate','เวลา\nTime', 'วันที่\nDate','เวลา\nTime',
@@ -1029,25 +1225,28 @@ function sharedHeaderRows(month, year) {
     'วันที่\nDate','เวลา\nTime', 'วันที่\nDate','เวลา\nTime',
     null, 'วันที่\nDate'
   ];
-  return [r0, r1, r2, r3, r4, r5];
+  return [r0, r1, r2, r3, r4, r5, r6, r7, r8];
 }
 
 const MERGES_HEADER = [
-  {s:{r:0,c:0}, e:{r:0,c:16}},   // Title
-  {s:{r:1,c:13},e:{r:1,c:16}},   // N2:Q2 — สาขา
-  {s:{r:2,c:13},e:{r:2,c:16}},   // N3:Q3 — วันที่นำออก
-  {s:{r:3,c:13},e:{r:3,c:16}},   // N4:Q4 — ช่วงข้อมูล
-  {s:{r:4,c:0}, e:{r:5,c:0}},    // Emp ID
-  {s:{r:4,c:1}, e:{r:5,c:1}},    // Name
-  {s:{r:4,c:2}, e:{r:4,c:3}},    // Clock In
-  {s:{r:4,c:4}, e:{r:4,c:5}},    // Clock Out
-  {s:{r:4,c:6}, e:{r:4,c:7}},    // Break Out
-  {s:{r:4,c:8}, e:{r:4,c:9}},    // Break In
-  {s:{r:4,c:10},e:{r:5,c:10}},   // Work Time
-  {s:{r:4,c:11},e:{r:4,c:12}},   // OT In
-  {s:{r:4,c:13},e:{r:4,c:14}},   // OT Out
-  {s:{r:4,c:15},e:{r:5,c:15}},   // OT Time
-  {s:{r:4,c:16},e:{r:5,c:16}},   // OT Requested
+  {s:{r:0,c:0}, e:{r:0,c:16}},   // Company TH
+  {s:{r:1,c:0}, e:{r:1,c:16}},   // Company EN
+  {s:{r:2,c:0}, e:{r:2,c:16}},   // Blank separator row
+  {s:{r:3,c:0}, e:{r:3,c:16}},   // Title (row 4)
+  {s:{r:4,c:13},e:{r:4,c:16}},   // N5:Q5 — สาขา
+  {s:{r:5,c:13},e:{r:5,c:16}},   // N6:Q6 — วันที่นำออก
+  {s:{r:6,c:13},e:{r:6,c:16}},   // N7:Q7 — ช่วงข้อมูล
+  {s:{r:7,c:0}, e:{r:8,c:0}},    // Emp ID
+  {s:{r:7,c:1}, e:{r:8,c:1}},    // Name
+  {s:{r:7,c:2}, e:{r:7,c:3}},    // Clock In
+  {s:{r:7,c:4}, e:{r:7,c:5}},    // Clock Out
+  {s:{r:7,c:6}, e:{r:7,c:7}},    // Break Out
+  {s:{r:7,c:8}, e:{r:7,c:9}},    // Break In
+  {s:{r:7,c:10},e:{r:8,c:10}},   // Work Time
+  {s:{r:7,c:11},e:{r:7,c:12}},   // OT In
+  {s:{r:7,c:13},e:{r:7,c:14}},   // OT Out
+  {s:{r:7,c:15},e:{r:8,c:15}},   // OT Time
+  {s:{r:7,c:16},e:{r:8,c:16}},   // OT Requested
 ];
 
 const COL_WIDTHS = [
@@ -1130,7 +1329,7 @@ function buildOverall(wb, att, employees, shifts, month, year) {
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!merges'] = merges;
   ws['!cols']   = COL_WIDTHS;
-  applyStyles(ws, 6);
+  applyStyles(ws, 9);
   XLSX.utils.book_append_sheet(wb, ws, 'Overall');
 }
 
@@ -1169,7 +1368,7 @@ function buildPerson(wb, att, employees, shifts, month, year) {
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!merges'] = merges;
   ws['!cols']   = COL_WIDTHS;
-  applyStyles(ws, 6);
+  applyStyles(ws, 9);
   XLSX.utils.book_append_sheet(wb, ws, 'Person');
 }
 
@@ -1183,6 +1382,9 @@ function buildAttendance(wb, att, employees, month, year) {
   // Title rows
   // AF=31, AI=34, AD=29 — ensure rows are wide enough (at least 35 cols)
   const rowWidth = Math.max(5 + numDays, 35);
+  aoa.push(['โซเด็กซ์โซ (ประเทศไทย) จำกัด']);
+  aoa.push(['Sodexo (Thailand) Ltd.']);
+  aoa.push([]);  // blank separator row
   aoa.push(['รายงานสถานะการเข้างานรายวัน']);
   const r1 = new Array(rowWidth).fill(null); r1[31] = 'สาขา Headquarter';
   const r2 = new Array(rowWidth).fill(null); r2[31] = `วันที่นำออก ${dateOut}`;
@@ -1231,10 +1433,13 @@ function buildAttendance(wb, att, employees, month, year) {
 
   // Merges
   const merges = [
-    {s:{r:0,c:0}, e:{r:0,c:rowWidth-1}},  // title row
-    {s:{r:1,c:31},e:{r:1,c:34}},           // AF2:AI2 — สาขา
-    {s:{r:2,c:31},e:{r:2,c:34}},           // AF3:AI3 — วันที่นำออก
-    {s:{r:3,c:29},e:{r:3,c:34}},           // AD4:AI4 — ช่วงข้อมูล
+    {s:{r:0,c:0}, e:{r:0,c:rowWidth-1}},  // Company TH
+    {s:{r:1,c:0}, e:{r:1,c:rowWidth-1}},  // Company EN
+    {s:{r:2,c:0}, e:{r:2,c:rowWidth-1}},  // blank separator
+    {s:{r:3,c:0}, e:{r:3,c:rowWidth-1}},  // title row (row 4)
+    {s:{r:4,c:31},e:{r:4,c:34}},           // AF5:AI5 — สาขา
+    {s:{r:5,c:31},e:{r:5,c:34}},           // AF6:AI6 — วันที่นำออก
+    {s:{r:6,c:29},e:{r:6,c:34}},           // AD7:AI7 — ช่วงข้อมูล
   ];
   ws['!merges'] = merges;
 
@@ -1242,7 +1447,7 @@ function buildAttendance(wb, att, employees, month, year) {
   const cols = [{wch:14},{wch:22},{wch:18},{wch:30},{wch:12}];
   for (let d = 1; d <= numDays; d++) cols.push({wch:5});
   ws['!cols'] = cols;
-  applyStyles(ws, 5);
+  applyStyles(ws, 8);
   XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
 }
 
@@ -1273,10 +1478,13 @@ function applyStyles(ws, headerRows) {
   let dataRowCount = 0;
 
   for (let R = range.s.r; R <= range.e.r; R++) {
-    const isTitle      = R === 0;
-    const isMeta       = R >= 1 && R < 4;       // rows 2-4 (info rows)
-    const isColHeader  = R === 4;                // row 5 — main header
-    const isSubHeader  = R === 5;                // row 6 — Date/Time sub-header
+    const isCompanyTH  = R === 0;               // โซเด็กซ์โซ (ประเทศไทย) จำกัด
+    const isCompanyEN  = R === 1;               // Sodexo (Thailand) Ltd.
+    const isBlankRow   = R === 2;               // blank separator
+    const isTitle      = R === 3;               // รายงาน title
+    const isMeta       = R >= 4 && R < 7;       // rows 5-7 (info rows)
+    const isColHeader  = R === 7;               // main column header
+    const isSubHeader  = R === 8 && R < headerRows; // Date/Time sub-header (only Overall/Person)
     const isGroupHdr   = groupHeaderRows.has(R);
     const isData       = R >= headerRows && !isGroupHdr;
     if (isData) dataRowCount++;
@@ -1285,9 +1493,15 @@ function applyStyles(ws, headerRows) {
       const addr = XLSX.utils.encode_cell({ r: R, c: C });
       if (!ws[addr]) ws[addr] = { t: 's', v: '' };
 
-      let bg = null, fg = '000000', bold = false, sz = 10, wrap = false;
+      let bg = null, fg = '000000', bold = false, italic = false, sz = 10, wrap = false;
 
-      if (isTitle) {
+      if (isCompanyTH) {
+        bg = CLR_HEADER_BG; fg = CLR_HEADER_FG; bold = true; sz = 13;
+      } else if (isCompanyEN) {
+        bg = CLR_HEADER_BG; fg = CLR_HEADER_FG; italic = true; sz = 11;
+      } else if (isBlankRow) {
+        bg = 'FFFFFF'; // blank row = white
+      } else if (isTitle) {
         bg = CLR_TITLE_BG; fg = CLR_HEADER_FG; bold = true; sz = 13; wrap = false;
       } else if (isMeta) {
         fg = '555555'; sz = 9;
@@ -1304,7 +1518,7 @@ function applyStyles(ws, headerRows) {
 
       ws[addr].s = {
         fill: bg ? { patternType: 'solid', fgColor: { rgb: bg } } : undefined,
-        font: { bold, sz, color: { rgb: fg } },
+        font: { bold, italic, sz, color: { rgb: fg } },
         alignment: { horizontal: 'center', vertical: 'center', wrapText: wrap },
         border: {
           top:    { style: 'thin', color: { rgb: 'D0D8E4' } },
@@ -1317,8 +1531,8 @@ function applyStyles(ws, headerRows) {
   }
 
   // Explicit center+middle for all row-spanning merged header cells
-  // (A5:A6, B5:B6, K5:K6, P5:P6, Q5:Q6)
-  [[4,0],[4,1],[4,10],[4,15],[4,16]].forEach(([r,c]) => {
+  // (A8:A9, B8:B9, K8:K9, P8:P9, Q8:Q9)
+  [[7,0],[7,1],[7,10],[7,15],[7,16]].forEach(([r,c]) => {
     const addr = XLSX.utils.encode_cell({ r, c });
     if (!ws[addr]) ws[addr] = { t: 's', v: '' };
     ws[addr].s = {
@@ -1334,15 +1548,19 @@ function applyStyles(ws, headerRows) {
     };
   });
 
-  // Row heights
+  // Row heights (user spec: rows in Excel 1-based, pixels)
+  // Row 1 = 28px, Row 2 = 22px, Row 3 = blank ~8px, Row 4 = 20px, Rows 8-9 = 36/40px
   const rowHeights = [];
   for (let R = range.s.r; R <= range.e.r; R++) {
-    if (R === 0)            rowHeights[R] = { hpt: 24 };
-    else if (R < 4)         rowHeights[R] = { hpt: 15 };
-    else if (R === 4)       rowHeights[R] = { hpt: 38 };
-    else if (R === 5)       rowHeights[R] = { hpt: 30 };
+    if      (R === 0) rowHeights[R] = { hpx: 28 };   // Company TH
+    else if (R === 1) rowHeights[R] = { hpx: 22 };   // Company EN
+    else if (R === 2) rowHeights[R] = { hpx: 8  };   // blank separator
+    else if (R === 3) rowHeights[R] = { hpx: 20 };   // Title
+    else if (R >= 4 && R < 7) rowHeights[R] = { hpt: 14 };  // meta rows
+    else if (R === 7) rowHeights[R] = { hpx: 36 };   // col headers
+    else if (R === 8 && R < headerRows) rowHeights[R] = { hpx: 40 }; // sub-headers (Overall/Person)
     else if (groupHeaderRows.has(R)) rowHeights[R] = { hpt: 20 };
-    else                    rowHeights[R] = { hpt: 18 };
+    else              rowHeights[R] = { hpt: 18 };
   }
   ws['!rows'] = rowHeights;
 }
