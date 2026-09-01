@@ -1188,8 +1188,11 @@ async function runGenerate() {
 //  SHEET BUILDERS
 // ═══════════════════════════════════════════
 
-// ── Shared header rows (rows 0-7 in aoa) ──
-function sharedHeaderRows(month, year) {
+// ── Shared header rows (rows 0-8 in aoa) ──
+// withPos = true → insert "ตำแหน่ง / Position" as column C, shifting the rest right by 1
+function sharedHeaderRows(month, year, withPos) {
+  const S         = withPos ? 1 : 0;
+  const LAST      = 16 + S;
   const today     = new Date();
   const numDays   = daysInMonth(year, month);
   const dateOut   = `${today.getFullYear()}-${pad2(today.getMonth()+1)}-${pad2(today.getDate())}`;
@@ -1203,63 +1206,78 @@ function sharedHeaderRows(month, year) {
   const r2 = [];
   // Row 3: report title
   const r3 = ['รายงานการลงเวลารายวัน'];
-  // Row 4-6: branch / date info at col N (index 13)
-  const r4 = new Array(14).fill(null); r4[13] = 'สาขา Headquarter';
-  const r5 = new Array(14).fill(null); r5[13] = `วันที่นำออก ${dateOut}`;
-  const r6 = new Array(14).fill(null); r6[13] = rangeStr;
+  // Row 4-6: branch / date info at col N (index 13, +1 when Position column present)
+  const r4 = new Array(LAST+1).fill(null); r4[13+S] = 'สาขา Headquarter';
+  const r5 = new Array(LAST+1).fill(null); r5[13+S] = `วันที่นำออก ${dateOut}`;
+  const r6 = new Array(LAST+1).fill(null); r6[13+S] = rangeStr;
   // Row 7: column headers
-  const r7 = [
-    'รหัสพนักงาน\nEmployee ID', 'ชื่อ-สกุล\nName',
+  const r7 = ['รหัสพนักงาน\nEmployee ID', 'ชื่อ-สกุล\nName'];
+  if (withPos) r7.push('ตำแหน่ง\nPosition');
+  r7.push(
     'เข้างาน\nClock In', null, 'ออกงาน\nClock Out', null,
     'พักเที่ยงออก\nBreak Out', null, 'พักเที่ยงเข้า\nBreak In', null,
     'รวมเวลา\nWork Time',
     'OT เข้า\nOT In', null, 'OT ออก\nOT Out', null,
     'รวมเวลา\nOT Time', 'OT ที่ขอ (ชม.)\nOT Requested (Hr.)'
-  ];
+  );
   // Row 8: sub-headers
-  const r8 = [
-    null, null,
+  const r8 = [null, null];
+  if (withPos) r8.push(null);
+  r8.push(
     'วันที่\nDate','เวลา\nTime', 'วันที่\nDate','เวลา\nTime',
     'วันที่\nDate','เวลา\nTime', 'วันที่\nDate','เวลา\nTime',
     null,
     'วันที่\nDate','เวลา\nTime', 'วันที่\nDate','เวลา\nTime',
     null, 'วันที่\nDate'
-  ];
+  );
   return [r0, r1, r2, r3, r4, r5, r6, r7, r8];
 }
 
-const MERGES_HEADER = [
-  {s:{r:0,c:0}, e:{r:0,c:16}},   // Company TH
-  {s:{r:1,c:0}, e:{r:1,c:16}},   // Company EN
-  {s:{r:2,c:0}, e:{r:2,c:16}},   // Blank separator row
-  {s:{r:3,c:0}, e:{r:3,c:16}},   // Title (row 4)
-  {s:{r:4,c:13},e:{r:4,c:16}},   // N5:Q5 — สาขา
-  {s:{r:5,c:13},e:{r:5,c:16}},   // N6:Q6 — วันที่นำออก
-  {s:{r:6,c:13},e:{r:6,c:16}},   // N7:Q7 — ช่วงข้อมูล
-  {s:{r:7,c:0}, e:{r:8,c:0}},    // Emp ID
-  {s:{r:7,c:1}, e:{r:8,c:1}},    // Name
-  {s:{r:7,c:2}, e:{r:7,c:3}},    // Clock In
-  {s:{r:7,c:4}, e:{r:7,c:5}},    // Clock Out
-  {s:{r:7,c:6}, e:{r:7,c:7}},    // Break Out
-  {s:{r:7,c:8}, e:{r:7,c:9}},    // Break In
-  {s:{r:7,c:10},e:{r:8,c:10}},   // Work Time
-  {s:{r:7,c:11},e:{r:7,c:12}},   // OT In
-  {s:{r:7,c:13},e:{r:7,c:14}},   // OT Out
-  {s:{r:7,c:15},e:{r:8,c:15}},   // OT Time
-  {s:{r:7,c:16},e:{r:8,c:16}},   // OT Requested
-];
+// Header merges — shifted right by 1 when the Position column is present
+function headerMerges(withPos) {
+  const S    = withPos ? 1 : 0;
+  const LAST = 16 + S;
+  const M = [
+    {s:{r:0,c:0}, e:{r:0,c:LAST}},   // Company TH
+    {s:{r:1,c:0}, e:{r:1,c:LAST}},   // Company EN
+    {s:{r:2,c:0}, e:{r:2,c:LAST}},   // Blank separator row
+    {s:{r:3,c:0}, e:{r:3,c:LAST}},   // Title (row 4)
+    {s:{r:4,c:13+S},e:{r:4,c:LAST}}, // สาขา
+    {s:{r:5,c:13+S},e:{r:5,c:LAST}}, // วันที่นำออก
+    {s:{r:6,c:13+S},e:{r:6,c:LAST}}, // ช่วงข้อมูล
+    {s:{r:7,c:0}, e:{r:8,c:0}},      // Emp ID
+    {s:{r:7,c:1}, e:{r:8,c:1}},      // Name
+  ];
+  if (withPos) M.push({s:{r:7,c:2}, e:{r:8,c:2}});  // Position (C8:C9)
+  M.push(
+    {s:{r:7,c:2+S}, e:{r:7,c:3+S}},   // Clock In
+    {s:{r:7,c:4+S}, e:{r:7,c:5+S}},   // Clock Out
+    {s:{r:7,c:6+S}, e:{r:7,c:7+S}},   // Break Out
+    {s:{r:7,c:8+S}, e:{r:7,c:9+S}},   // Break In
+    {s:{r:7,c:10+S},e:{r:8,c:10+S}},  // Work Time
+    {s:{r:7,c:11+S},e:{r:7,c:12+S}},  // OT In
+    {s:{r:7,c:13+S},e:{r:7,c:14+S}},  // OT Out
+    {s:{r:7,c:15+S},e:{r:8,c:15+S}},  // OT Time
+    {s:{r:7,c:16+S},e:{r:8,c:16+S}},  // OT Requested
+  );
+  return M;
+}
 
-const COL_WIDTHS = [
-  {wch:15},{wch:22},{wch:12},{wch:8},{wch:12},{wch:8},
-  {wch:12},{wch:8},{wch:12},{wch:8},{wch:10},
-  {wch:12},{wch:8},{wch:12},{wch:8},{wch:10},{wch:10}
-];
+function colWidths(withPos) {
+  const w = [
+    {wch:15},{wch:22},{wch:12},{wch:8},{wch:12},{wch:8},
+    {wch:12},{wch:8},{wch:12},{wch:8},{wch:10},
+    {wch:12},{wch:8},{wch:12},{wch:8},{wch:10},{wch:10}
+  ];
+  if (withPos) w.splice(2, 0, {wch:24});   // ตำแหน่ง / Position
+  return w;
+}
 
 // Force a value to string cell — prevents Excel auto-converting "06:28" to decimal
 const strCell = v => v ? { t: 's', v: String(v) } : null;
 
 // Build a single data row for Overall / Person sheets
-function buildDataRow(r, employees, shifts) {
+function buildDataRow(r, employees, shifts, withPos) {
   const emp    = employees[r.empId];
   const name   = emp ? emp.name : `${r.firstName} ${r.lastName}`.trim();
   const day    = dateToDay(r.date);
@@ -1274,23 +1292,28 @@ function buildDataRow(r, employees, shifts) {
   const wt     = fmtDuration(r.workTime);
   const ot     = hasOT ? fmtDuration(r.otTime) : null;
 
-  return [
-    r.empId, name,
-    r.clockInTime  ? r.date : null, strCell(r.clockInTime),   // C=date  D=time (HH:MM)
-    r.clockOutTime ? r.date : null, strCell(r.clockOutTime),  // E=date  F=time (HH:MM)
-    b1Out          ? r.date : null, strCell(b1Out),           // G=date  H=time (HH:MM)
-    b1In           ? r.date : null, strCell(b1In),            // I=date  J=time (HH:MM)
-    strCell(wt),                                               // K=Work Time (HH:MM)
+  const row = [r.empId, name];
+  if (withPos) row.push(emp ? (emp.position || '') : (r.position || ''));  // C = ตำแหน่ง / Position
+  row.push(
+    r.clockInTime  ? r.date : null, strCell(r.clockInTime),   // Clock In  : date + time (HH:MM)
+    r.clockOutTime ? r.date : null, strCell(r.clockOutTime),  // Clock Out : date + time (HH:MM)
+    b1Out          ? r.date : null, strCell(b1Out),           // Break Out : date + time (HH:MM)
+    b1In           ? r.date : null, strCell(b1In),            // Break In  : date + time (HH:MM)
+    strCell(wt),                                               // Work Time (HH:MM)
     (hasOT && tEnd)           ? r.date : null, strCell(hasOT && tEnd           ? tEnd          : null),  // OT In
     (hasOT && r.clockOutTime) ? r.date : null, strCell(hasOT && r.clockOutTime ? r.clockOutTime : null),  // OT Out
     strCell(ot), null  // OT Time, OT Requested
-  ];
+  );
+  return row;
 }
 
 // ── Overall sheet: grouped by ServiceType → Position ──
 function buildOverall(wb, att, employees, shifts, month, year) {
-  const aoa     = sharedHeaderRows(month, year);
-  const merges  = [...MERGES_HEADER];
+  const WITH_POS = true;                 // Overall shows ตำแหน่ง / Position in column C
+  const NCOLS    = WITH_POS ? 18 : 17;
+  const LAST     = NCOLS - 1;
+  const aoa     = sharedHeaderRows(month, year, WITH_POS);
+  const merges  = headerMerges(WITH_POS);
   let rowIdx    = aoa.length;
 
   // Group: serviceType+position
@@ -1309,34 +1332,34 @@ function buildOverall(wb, att, employees, shifts, month, year) {
   sortedKeys.forEach(key => {
     const g = groups[key];
     // Group header row
-    const gh = new Array(17).fill(null);
+    const gh = new Array(NCOLS).fill(null);
     gh[0] = `แผนก (Department) : ${g.dept}`;
     gh[4] = `กลุ่มงาน (Work Group) : ${g.pos}`;
     aoa.push(gh);
-    merges.push({s:{r:rowIdx,c:0},e:{r:rowIdx,c:3}});   // merge dept label
-    merges.push({s:{r:rowIdx,c:4},e:{r:rowIdx,c:16}});  // merge workgroup label
+    merges.push({s:{r:rowIdx,c:0},e:{r:rowIdx,c:3}});      // merge dept label
+    merges.push({s:{r:rowIdx,c:4},e:{r:rowIdx,c:LAST}});   // merge workgroup label
     rowIdx++;
 
     // Sort records: by date then empId
     g.rows.sort((a,b) => (a.date||'').localeCompare(b.date||'') || a.empId.localeCompare(b.empId));
-    g.rows.forEach(r => { aoa.push(buildDataRow(r, employees, shifts)); rowIdx++; });
+    g.rows.forEach(r => { aoa.push(buildDataRow(r, employees, shifts, WITH_POS)); rowIdx++; });
 
     // Spacer row
-    aoa.push(new Array(17).fill(null));
+    aoa.push(new Array(NCOLS).fill(null));
     rowIdx++;
   });
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!merges'] = merges;
-  ws['!cols']   = COL_WIDTHS;
-  applyStyles(ws, 9);
+  ws['!cols']   = colWidths(WITH_POS);
+  applyStyles(ws, 9, WITH_POS ? 1 : 0);
   XLSX.utils.book_append_sheet(wb, ws, 'Overall');
 }
 
 // ── Person sheet: grouped by employee ──
 function buildPerson(wb, att, employees, shifts, month, year) {
-  const aoa     = sharedHeaderRows(month, year);
-  const merges  = [...MERGES_HEADER];
+  const aoa     = sharedHeaderRows(month, year, false);
+  const merges  = headerMerges(false);
   let rowIdx    = aoa.length;
 
   // Group: empId
@@ -1360,14 +1383,14 @@ function buildPerson(wb, att, employees, shifts, month, year) {
     rowIdx++;
 
     g.rows.sort((a,b) => (a.date||'').localeCompare(b.date||''));
-    g.rows.forEach(r => { aoa.push(buildDataRow(r, employees, shifts)); rowIdx++; });
+    g.rows.forEach(r => { aoa.push(buildDataRow(r, employees, shifts, false)); rowIdx++; });
     aoa.push(new Array(17).fill(null));
     rowIdx++;
   });
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!merges'] = merges;
-  ws['!cols']   = COL_WIDTHS;
+  ws['!cols']   = colWidths(false);
   applyStyles(ws, 9);
   XLSX.utils.book_append_sheet(wb, ws, 'Person');
 }
@@ -1454,7 +1477,8 @@ function buildAttendance(wb, att, employees, month, year) {
 // ═══════════════════════════════════════════
 //  CELL STYLING — center align all cells
 // ═══════════════════════════════════════════
-function applyStyles(ws, headerRows) {
+function applyStyles(ws, headerRows, colShift) {
+  const S = colShift || 0;   // 1 when the Position column is inserted at C
   if (!ws['!ref']) return;
   const range = XLSX.utils.decode_range(ws['!ref']);
 
@@ -1531,8 +1555,10 @@ function applyStyles(ws, headerRows) {
   }
 
   // Explicit center+middle for all row-spanning merged header cells
-  // (A8:A9, B8:B9, K8:K9, P8:P9, Q8:Q9)
-  [[7,0],[7,1],[7,10],[7,15],[7,16]].forEach(([r,c]) => {
+  // (A8:A9, B8:B9, [C8:C9 when Position], Work Time, OT Time, OT Requested)
+  const spanCells = [[7,0],[7,1],[7,10+S],[7,15+S],[7,16+S]];
+  if (S) spanCells.push([7,2]);
+  spanCells.forEach(([r,c]) => {
     const addr = XLSX.utils.encode_cell({ r, c });
     if (!ws[addr]) ws[addr] = { t: 's', v: '' };
     ws[addr].s = {
